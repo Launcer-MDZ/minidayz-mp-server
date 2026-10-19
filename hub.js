@@ -6,7 +6,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PROTO = 'np1';
-const GAME_DIR = path.join(__dirname, '..', 'game');
+const GAME_DIR = path.join(__dirname, 'game');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.gif': 'image/gif', '.css': 'text/css', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
   '.mp3': 'audio/mpeg', '.webm': 'video/webm', '.mp4': 'video/mp4', '.txt': 'text/plain', '.ico': 'image/x-icon',

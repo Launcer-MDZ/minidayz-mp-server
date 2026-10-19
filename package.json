@@ -1,9 +1,10 @@
 {
-  "name": "mdz-reimagined-mp-hub",
-  "version": "1.0.0",
+  "name": "mdz-reimagined-mp-server",
+  "version": "1.1.0",
   "private": true,
-  "main": "hub.cjs",
-  "scripts": { "start": "node hub.cjs" },
+  "description": "Hub relay + host dedicated 24 jam untuk MiniDayZ+ Reimagined mp25",
+  "main": "start.js",
+  "scripts": { "start": "node start.js" },
   "engines": { "node": ">=20" },
-  "dependencies": { "ws": "^8.18.0" }
+  "dependencies": { "playwright": "1.49.0", "ws": "8.18.0" }
 }
