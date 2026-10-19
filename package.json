@@ -1,10 +1,10 @@
 {
-  "name": "mdz-reimagined-mp-hub",
+  "name": "mdz-server",
   "version": "1.0.0",
   "private": true,
-  "description": "WebSocket relay hub for MiniDayZ+ 2.3.8-mp24 protocol np1",
-  "main": "hub.cjs",
-  "scripts": { "start": "node hub.cjs" },
+  "description": "Hub relay + dedicated host untuk MiniDayZ+ Reimagined 2.3.8-mp25 (Railway)",
+  "main": "src/start.js",
+  "scripts": { "start": "node src/start.js", "hub": "node src/hub.js" },
   "engines": { "node": ">=20" },
-  "dependencies": { "ws": "^8.18.0" }
+  "dependencies": { "playwright": "1.49.0", "ws": "8.18.0" }
 }
