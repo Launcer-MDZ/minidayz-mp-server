@@ -36,13 +36,15 @@ async function launch() {
   console.log('memuat game dari', base);
   try {
     const ctx = await chromium.launchPersistentContext(profile, {
-      headless: true, viewport: { width: 1280, height: 720 },
+      headless: true, viewport: { width: Number(env.VIEW_W) || 640, height: Number(env.VIEW_H) || 360 },
       args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required', '--allow-running-insecure-content'],
+        '--disable-backgrounding-occluded-windows', ...(env.DISABLE_GPU === '1' ? ['--disable-gpu', '--disable-software-rasterizer'] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
+        '--in-process-gpu', '--disable-extensions', '--disable-features=site-per-process,TranslateUI', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--allow-running-insecure-content'],
     });
     const page = ctx.pages()[0] || await ctx.newPage();
     page.on('console', m => { if (m.type() === 'error') console.log('[game]', m.text().slice(0, 200)); });
-    page.on('crash', () => { console.log('halaman crash'); ctx.close().catch(() => {}); });
+    page.on('pageerror', e => console.log('[pageerror]', String(e.message || e).slice(0, 200)));
+    page.on('crash', () => { console.log('halaman crash', readMem()); ctx.close().catch(() => {}); });
     ctx.on('close', () => restart('browser tertutup'));
     await page.goto(url);
     console.log('game dedicated dibuka:', cfg.name);
@@ -53,4 +55,13 @@ function restart(why) {
   failures++; const wait = Math.min(60000, 3000 * failures);
   console.log(`restart host (${why}) dalam ${wait / 1000}s`); setTimeout(launch, wait);
 }
+// log pemakaian memori container tiap 10 detik (untuk mendiagnosis crash)
+function readMem() {
+  const rd = (p) => { try { return Number(fs.readFileSync(p, 'utf8').trim()); } catch (e) { return NaN; } };
+  let cur = rd('/sys/fs/cgroup/memory.current'), max = rd('/sys/fs/cgroup/memory.max');
+  if (isNaN(cur)) { cur = rd('/sys/fs/cgroup/memory/memory.usage_in_bytes'); max = rd('/sys/fs/cgroup/memory/memory.limit_in_bytes'); }
+  const mb = (n) => isNaN(n) ? '?' : Math.round(n / 1048576) + 'MB';
+  return `[mem] ${mb(cur)} / ${max > 1e13 || isNaN(max) ? 'tanpa batas' : mb(max)}`;
+}
+setInterval(() => console.log(readMem()), 10000);
 process.on('SIGTERM', () => process.exit(0));
