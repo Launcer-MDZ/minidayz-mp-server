@@ -38,8 +38,8 @@ async function launch() {
     const ctx = await chromium.launchPersistentContext(profile, {
       headless: true, viewport: { width: Number(env.VIEW_W) || 640, height: Number(env.VIEW_H) || 360 },
       args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows', ...(env.DISABLE_GPU === '1' ? ['--disable-gpu', '--disable-software-rasterizer'] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
-        '--in-process-gpu', '--disable-extensions', '--disable-features=site-per-process,TranslateUI', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--allow-running-insecure-content'],
+        '--disable-backgrounding-occluded-windows', ...(env.DISABLE_GPU === '1' ? ['--disable-gpu', '--disable-software-rasterizer'] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--in-process-gpu']),
+        '--disable-extensions', '--disable-features=site-per-process,TranslateUI', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--allow-running-insecure-content'],
     });
     const page = ctx.pages()[0] || await ctx.newPage();
     page.on('console', m => { if (m.type() === 'error') console.log('[game]', m.text().slice(0, 200)); });
