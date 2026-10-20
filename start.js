@@ -9,7 +9,7 @@ const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /
 const cfg = {
   name: env.SERVER_NAME || 'MiniDayZ Server Indonesia',
   pw: env.SERVER_PASSWORD || '',
-  max: Number(env.MAX_PLAYERS) || 20,
+  max: Number(env.MAX_PLAYERS) || 10,
   pvp: env.PVP === '0' ? 0 : 1,
   save: Number(env.SAVE_MINUTES) || 5,
   region: env.REGION || '',
@@ -30,6 +30,8 @@ async function launch() {
   const qs = (o) => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');   // game memakai decodeURIComponent: spasi harus %20, bukan +
   const q = ({ dedicated: '1', name: cfg.name, pw: cfg.pw, max: cfg.max, pvp: cfg.pvp, lan: '0', port: PORT, save: cfg.save, region: cfg.region });
   q.island = env.ISLAND || '1';                       // pulau 1-9
+  if (env.BIG_MAP === '1') q.big = '1';               // peta besar 33x32 (hanya untuk dunia baru)
+  if (env.LOCATIONS) q.loc = env.LOCATIONS;           // pengali lokasi 1-4 (hanya berlaku bila BIG_MAP=1)
   if (env.ENTRY_SECONDS) q.entry = env.ENTRY_SECONDS;  // hitung mundur pemain masuk (detik, 0-120)
   const base = (hasLocal && !env.GAME_URL) ? `http://127.0.0.1:${PORT}/` : GAME_URL.replace(/\/?$/, '/');
   const url = `${base}index.html?${qs(q)}`;
