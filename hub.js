@@ -7,6 +7,26 @@ const { WebSocketServer } = require('ws');
 
 const PROTO = 'np1';
 
+// Aturan dunia yang bisa diatur dari halaman admin (kunci sama dengan panel host di game).
+// type: 'b' = mati/nyala (0/1), 'n' = angka (min-max)
+const RULE_DEFS = [
+  ['perk_wxnj','Senjata / barang tidak aus','b'], ['perk_cybb','Barang tanpa batas','b'], ['perk_pz','Batas nyawa ganda','b'],
+  ['perk_byt','Zombie lebih kuat','b'], ['perk_xgzz','Bulan Darah','b'], ['perk_qldy','NPC menembak dengan senjata otomatis','b'],
+  ['perk_djjh','Pertukaran setara','b'], ['perk_jtcl','Slot inventaris tambahan','b'], ['perk_jzs','Mode bangun','b'], ['perk_exp','Toko barang XP','b'],
+  ['mp_map_all','Semua melihat pemain di peta','b'], ['mp_team_ff','Tembak kawan satu tim','b'], ['mp_los_required','Butuh garis pandang (LOS)','b'],
+  ['mp_los_darkness','Gelap LOS','n',0.05,1], ['mp_los_range','Jarak pandang LOS','n',0.3,3],
+  ['mp_no_bunker','Bunker-bunker ditutup','b'], ['mp_no_travel','Perjalanan pulau ditutup','b'],
+  ['mp_bk_every','Bunker: menit di antara pembukaan','n',5,600], ['mp_bk_open','Bunker: menit terbuka','n',1,60], ['mp_bk_gas','Bunker: menit gas saat ditutup','n',0,10],
+  ['mp_ferry_wait','Perjalanan pulau: menit sebelum perahu berangkat','n',0,30],
+  ['perk_keepinv','Simpan inventaris','b'], ['mp_team_style_admin','Hanya admin yang mengganti warna tim dan tag klan','b'],
+  ['mp_npc_budget','Anggaran NPC per area','n',10,200], ['mp_vehicle_budget','Batas kendaraan (0 = tanpa batas)','n',0,200],
+  ['mp_bring_own','Pendatang baru membawa penyintas mode pemain tunggal','b'], ['mp_no_return_boat','Pulau radiasi: tanpa perahu kembali','b'],
+  ['mp_no_raid','Penyerbuan mati (C-4, molotov, rebut tiang bendera)','b'],
+  ['mp_item_life','Barang di tanah: menit sebelum menghilang (0 = tidak pernah)','n',0,1440],
+  ['mp_crate_respawn','Peti: menit tanpa pemain sebelum terisi lagi (0 = tidak pernah)','n',0,1440],
+  ['mp_raid_walls','Penyerbuan: C-4 dan molotov juga menghancurkan dinding, tenda, bangunan lain','b'],
+];
+
 // Buffer log terakhir (dibaca halaman /admin/logs). start.js mengisinya dari console.log.
 const LOGBUF = [];
 function pushLog(line) { LOGBUF.push({ t: Date.now(), s: String(line).slice(0, 400) }); if (LOGBUF.length > 600) LOGBUF.splice(0, LOGBUF.length - 600); }
@@ -29,6 +49,7 @@ function createHub(opts = {}) {
   const peers = new Map();          // id -> { ws, id, name, uid, ip }
   const queue = [];                 // { ws, hello, ip }
   let seq = 1;
+  let rulesNow = {};               // aturan dunia terakhir yang diumumkan host (tag 'ru')
 
   // ---- fitur admin: hak admin per UID perangkat (disimpan di file), diberikan lewat host ----
   const ADMIN_KEY = process.env.ADMIN_KEY || '';
@@ -73,12 +94,37 @@ const m=document.createElement('span');m.textContent=x.s;if(/crash|gagal|error|p
 if(near)scrollTo(0,document.body.scrollHeight);}catch(e){o.textContent='Gagal memuat';}}
 load();setInterval(load,4000);
 </script>`;
+  const RULES_PAGE = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Aturan dunia</title>
+<style>body{font:16px system-ui;background:#111;color:#eee;margin:12px}a{color:#8cf}h3,h4{margin:14px 0 6px}.r{border-top:1px solid #333;padding:8px 0}small{color:#999}
+select,input{font:inherit;padding:6px;background:#222;color:#eee;border:1px solid #555;border-radius:6px}input[type=number]{width:90px}button{font:inherit;margin:4px 6px 0 0;padding:6px 10px;border-radius:6px;border:0;background:#2d6a2d;color:#fff}button.g{background:#555}</style>
+<a id=bk>Kembali ke admin</a><h3>Aturan dunia</h3><small id=st>memuat...</small><div id=l></div>
+<h3>Perlengkapan awal (pendatang baru)</h3><div class=r>
+<label><input type=checkbox id=ko checked> berikan</label> <label><input type=checkbox id=kr> juga setelah mati</label><br>
+kondisi <input type=number id=kc value=100 min=1 max=100>%<br>ID barang (pisahkan koma, maks 20) <input id=ki placeholder="6,39,40" style="width:90%;margin-top:6px"><br>
+<small>ID barang dilihat di panel Admin game, daftar Barang: [ID: 6] Apple. Nilai sekarang tidak bisa dibaca, jadi isi ulang lengkap setiap kali.</small><br><button id=ks>Simpan perlengkapan</button></div>
+<script>
+const K=new URLSearchParams(location.search).get('key')||'';bk.href='/admin?key='+encodeURIComponent(K);
+const Q=(p)=>'/admin/'+p+(p.includes('?')?'&':'?')+'key='+encodeURIComponent(K);
+async function call(p){const r=await fetch(Q(p));const j=await r.json();if(!j.ok)alert(j.error||'gagal');return j;}
+function btn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;return b;}
+let built=false;
+async function load(){try{const r=await fetch(Q('rulesdata'));if(!r.ok){st.textContent='Kunci salah';return}const j=await r.json();
+st.textContent=j.online?'Host aktif. Nilai kosong = bawaan game.':'Host offline.';if(built)return;built=true;
+j.defs.forEach(d=>{const row=document.createElement('div');row.className='r';const n=document.createElement('div');n.textContent=d.label;row.appendChild(n);
+const v=j.values[d.k];let el;
+if(d.type==='b'){el=document.createElement('select');[['','bawaan'],['0','mati'],['1','nyala']].forEach(o=>{const op=document.createElement('option');op.value=o[0];op.textContent=o[1];el.appendChild(op);});el.value=v===undefined?'':String(v);}
+else{el=document.createElement('input');el.type='number';el.step='any';el.min=d.min;el.max=d.max;el.placeholder=d.min+'-'+d.max;el.value=v===undefined?'':v;}
+row.appendChild(el);row.appendChild(btn('Simpan','',async()=>{const x=await call('setrule?k='+d.k+'&v='+encodeURIComponent(el.value));if(x.ok)alert('Tersimpan');}));
+row.appendChild(btn('Bawaan','g',async()=>{const x=await call('setrule?k='+d.k+'&v=');if(x.ok){el.value='';alert('Dikembalikan ke bawaan');}}));l.appendChild(row);});}catch(e){st.textContent='Gagal memuat';}}
+ks.onclick=async()=>{const x=await call('setkit?on='+(ko.checked?1:0)+'&respawn='+(kr.checked?1:0)+'&cond='+encodeURIComponent(kc.value)+'&items='+encodeURIComponent(ki.value));if(x.ok)alert('Perlengkapan tersimpan');};
+load();
+</script>`;
   const ADMIN_PAGE = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Admin</title>
 <style>body{font:16px system-ui;background:#111;color:#eee;margin:12px}h3{margin:0 0 8px}.p{border:1px solid #444;border-radius:8px;padding:8px;margin:8px 0}
 small{color:#999;word-break:break-all}button{font:inherit;margin:6px 6px 0 0;padding:8px 12px;border-radius:6px;border:0;background:#2d6a2d;color:#fff}button.r{background:#8a2b2b}button.g{background:#555}</style>
-<h3 id=t>Pemain</h3><a id=lg style="color:#8cf">Lihat log server</a><div id=l>memuat...</div>
+<h3 id=t>Pemain</h3><a id=lg style="color:#8cf">Lihat log server</a> &nbsp; <a id=rl style="color:#8cf">Aturan dunia</a><div id=l>memuat...</div>
 <script>
-const K=new URLSearchParams(location.search).get('key')||'';lg.href='/admin/logs?key='+encodeURIComponent(K);
+const K=new URLSearchParams(location.search).get('key')||'';lg.href='/admin/logs?key='+encodeURIComponent(K);rl.href='/admin/rules?key='+encodeURIComponent(K);
 async function go(c,id,on){const r=await fetch('/admin/do?key='+encodeURIComponent(K)+'&c='+c+'&peer='+encodeURIComponent(id)+'&on='+(on?1:0));const j=await r.json();if(!j.ok)alert(j.error||'gagal');load();}
 function btn(txt,cls,fn){const b=document.createElement('button');b.textContent=txt;if(cls)b.className=cls;b.onclick=fn;return b;}
 async function load(){try{const r=await fetch('/admin/players?key='+encodeURIComponent(K));if(!r.ok){l.textContent='Kunci salah';return}const j=await r.json();
@@ -150,6 +196,7 @@ load();setInterval(load,5000);
     if (m.t === 'ping') return send(ws, { t: 'pong', ts: m.ts });
     if (m.t === 'kick' && ws.mdzHost) { kickPeer(m.id, m.reason, m.text); return; }
     if (m.t === 'msg') {
+      if (ws.mdzHost && m.tag === 'ru') { try { const o = JSON.parse(String(m.data)); if (o && typeof o === 'object') rulesNow = o; } catch (e) {} }
       const out = { t: 'msg', from: me.id, tag: m.tag, data: m.data };
       const to = m.to;
       if (to === 'all') everyone().forEach(x => { if (x.ws !== ws) send(x.ws, out); });
@@ -167,7 +214,7 @@ load();setInterval(load,5000);
       log('HOST putus: semua pemain dikeluarkan');
       peers.forEach(p => { send(p.ws, { t: 'host_left' }); try { p.ws.close(); } catch (e) {} });
       queue.forEach(q => { send(q.ws, { t: 'refused', reason: 'no_host' }); try { q.ws.close(); } catch (e) {} });
-      peers.clear(); queue.length = 0; host = null; room = null; return;
+      peers.clear(); queue.length = 0; host = null; room = null; rulesNow = {}; return;
     }
     peers.delete(me.id);
     everyone().forEach(x => send(x.ws, { t: 'left', id: me.id }));
@@ -181,8 +228,25 @@ load();setInterval(load,5000);
       if (!ADMIN_KEY) { res.writeHead(404); return res.end('admin nonaktif'); }
       if (!keyOk(url.searchParams.get('key') || '')) { return setTimeout(() => { res.writeHead(403); res.end('kunci salah'); }, 800); }
       if (url.pathname === '/admin') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(ADMIN_PAGE); }
+      if (url.pathname === '/admin/rules') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(RULES_PAGE); }
       if (url.pathname === '/admin/logs') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(LOG_PAGE); }
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      if (url.pathname === '/admin/rulesdata') return res.end(JSON.stringify({ online: !!host, values: rulesNow, defs: RULE_DEFS.map(d => ({ k: d[0], label: d[1], type: d[2], min: d[3], max: d[4] })) }));
+      if (url.pathname === '/admin/setrule') {
+        const def = RULE_DEFS.find(d => d[0] === url.searchParams.get('k')); const v = url.searchParams.get('v');
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (!def) return res.end('{"ok":false,"error":"aturan tidak dikenal"}');
+        if (v !== '' && !isFinite(Number(v))) return res.end('{"ok":false,"error":"nilai harus angka"}');
+        log(`admin: aturan ${def[0]} = ${v === '' ? 'bawaan' : v}`); sendAc('rule', { key: def[0], value: v === '' ? '' : Number(v) });
+        return res.end('{"ok":true}');
+      }
+      if (url.pathname === '/admin/setkit') {
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        const items = String(url.searchParams.get('items') || '').split(',').map(x => Number(x.trim())).filter(x => x > 0).slice(0, 20);
+        const kit = { on: url.searchParams.get('on') === '1', respawn: url.searchParams.get('respawn') === '1', cond: Math.max(1, Math.min(100, Number(url.searchParams.get('cond')) || 100)), items };
+        log(`admin: perlengkapan awal ${kit.on ? 'ON' : 'OFF'} (${items.length} barang)`); sendAc('kit', kit);
+        return res.end('{"ok":true}');
+      }
       if (url.pathname === '/admin/logdata') return res.end(JSON.stringify({ lines: LOGBUF.slice(-400) }));
       if (url.pathname === '/admin/players')
         return res.end(JSON.stringify({ online: !!host, max: room ? room.max : 0, players: [...peers.values()].map(p => ({ id: p.id, name: p.name, uid: p.uid, admin: adminUids.has(p.uid) })) }));
