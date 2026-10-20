@@ -1,0 +1,122 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>MiniDayZ Admin</title>
+<style>
+body{font:15px system-ui;background:#10141b;color:#e6e6e6;margin:0 0 40px}
+#top{position:sticky;top:0;background:#10141b;padding:8px 10px;border-bottom:1px solid #2a3340;z-index:2}
+#tabs button{background:#232b38;margin:4px 4px 0 0}#tabs button.on{background:#2d6a2d}
+#app{padding:8px 10px}h4{color:#7db4ff;margin:14px 0 6px;border-bottom:1px solid #2a3340}
+.c{border:1px solid #2a3340;border-radius:8px;padding:8px;margin:8px 0}small,.d{color:#8d98a8;word-break:break-all}
+button{font:inherit;margin:5px 5px 0 0;padding:6px 10px;border:0;border-radius:6px;background:#2f4c7a;color:#fff}
+button.r{background:#8a2b2b}button.g{background:#444}button.on{background:#2d6a2d}
+input,select{font:inherit;padding:6px;background:#1b222d;color:#eee;border:1px solid #3a4658;border-radius:6px;max-width:100%}
+input[type=number]{width:80px}.it{max-height:210px;overflow:auto;border:1px solid #2a3340;border-radius:8px}
+.it div{padding:6px 8px;border-bottom:1px solid #1d2531}.it div.sel{background:#2d6a2d}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #1d2531;padding:6px 0}
+pre{white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,monospace}.e{color:#f88}
+</style>
+<div id=top><b id=ttl>MiniDayZ Admin</b> <small id=sub></small><div id=tabs></div></div><div id=app>memuat...</div>
+<script>
+const K=new URLSearchParams(location.search).get('key')||'';
+const api=p=>fetch('/admin/'+p+(p.includes('?')?'&':'?')+'key='+encodeURIComponent(K)).then(r=>r.json());
+const act=(c,a)=>api('act?c='+c+'&a='+encodeURIComponent(JSON.stringify(a||{}))).then(j=>{if(!j.ok)alert(j.error||'gagal');setTimeout(load,700);return j;});
+const h=(t,p,...c)=>{const e=document.createElement(t);for(const k in(p||{})){const v=p[k];if(k.slice(0,2)==='on')e[k]=v;else if(k==='class')e.className=v;else if(v!==false&&v!=null)e.setAttribute(k,v===true?'':v);}
+c.flat(9).forEach(x=>{if(x!=null&&x!==false)e.append(x.nodeType?x:String(x));});return e;};
+const b=(t,f,cls)=>h('button',{onclick:f,class:cls||''},t);
+let S=null,ITEMS=[],RD=[],LOGS=[];
+const U={tab:'pemain',q:'',sel:null,qty:'1',cond:'100',tgt:'',hour:'12',say:''};
+const TABS=[['pemain','Pemain'],['barang','Barang & kit'],['dunia','Dunia'],['aturan','Aturan'],['aman','Keamanan'],['log','Log']];
+const nm=id=>{const x=ITEMS.find(i=>i[0]===id);return x?x[1]:'#'+id;};
+const typing=()=>{const a=document.activeElement;return a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)&&app.contains(a);};
+const bind=(id,k,type)=>h('input',{id,type:type||'text',value:U[k],oninput:e=>{U[k]=e.target.value;}});
+
+async function load(){
+  try{S=await api('state');if(!ITEMS.length)ITEMS=(await api('items')).items||[];if(!RD.length)RD=(await api('rulesdata')).defs||[];
+    if(U.tab==='log')LOGS=(await api('logdata')).lines||[];}catch(e){S=null;}
+  if(!typing())draw();
+}
+function draw(){
+  tabs.replaceChildren(...TABS.map(t=>h('button',{class:U.tab===t[0]?'on':'',onclick:()=>{U.tab=t[0];load();}},t[1])));
+  if(!S){app.replaceChildren('Gagal memuat (kunci salah atau server mati).');return;}
+  ttl.textContent=S.name||'MiniDayZ Admin';
+  sub.textContent=(S.online?'online':'host offline')+(S.fps!=null?' · '+S.fps+' fps':'')+(S.mem!=null?' · '+S.mem+' MB':'')+(S.world?' · hari '+S.world.day+' · '+Math.floor(S.world.time/60)+':'+('0'+Math.round(S.world.time%60)).slice(-2):'');
+  const f={pemain:pemain,barang:barang,dunia:dunia,aturan:aturan,aman:aman,log:log}[U.tab];
+  app.replaceChildren(f());
+}
+function pemain(){
+  const ps=(S.players||[]);
+  return h('div',{},h('h4',{},'Pemain ('+ps.filter(p=>p.id!=='h').length+')'),ps.length?ps.map(p=>h('div',{class:'c'},
+    h('b',{},p.name),p.admin?' (admin)':'',p.id==='h'?' (server)':'',h('br'),
+    h('small',{},p.id+' · '+(p.uid||'').slice(0,10)+' · '+(p.ip||'-')+' · PvP '+p.pvpKills+'/'+p.pvpDeaths+(p.x==null?' · tidak ada posisi (mati / baru masuk)':'')),h('br'),
+    b('Sembuhkan',()=>act('heal',{peer:p.id})),b('Dewa',()=>act('god',{peer:p.id,on:true})),b('Dewa mati',()=>act('god',{peer:p.id,on:false})),
+    p.id==='h'?null:[
+      b(p.admin?'Cabut admin':'Jadikan admin',()=>act('admin',{peer:p.id,on:!p.admin}),p.admin?'on':''),
+      b('Kick',()=>{const w=prompt('Alasan kick (opsional)','');if(w!==null)act('kick',{peer:p.id,text:w});},'r'),
+      b('Ban',()=>{const w=prompt('Alasan ban (opsional)','');if(w!==null)act('ban',{peer:p.id,text:w,ip:false});},'r'),
+      b('Ban + IP',()=>{const w=prompt('Alasan ban + IP (opsional)','');if(w!==null)act('ban',{peer:p.id,text:w,ip:true});},'r'),
+      b('Beri barang',()=>{U.tgt=p.uid||'';U.tab='barang';draw();})
+    ])):'Belum ada pemain.',
+    h('small',{},'Kendaraan dan NPC hanya bisa dimunculkan dari panel admin di game (butuh posisi admin).'));
+}
+function barang(){
+  const q=U.q.toLowerCase(),list=ITEMS.filter(i=>!q||i[1].toLowerCase().includes(q)||String(i[0])===q).slice(0,60);
+  const ps=(S.players||[]).filter(p=>p.id!=='h'&&p.uid);
+  const tp=ps.find(p=>p.uid===U.tgt);const K2=S.kit||{on:false,respawn:false,cond:100,items:[]};
+  const setKit=o=>act('kit',Object.assign({on:K2.on,respawn:K2.respawn,cond:K2.cond,items:K2.items},o));
+  return h('div',{},h('h4',{},'Barang'),
+    bind('q','q'),' ',h('select',{onchange:e=>{U.tgt=e.target.value;}},h('option',{value:''},'pilih pemain'),ps.map(p=>h('option',{value:p.uid,selected:p.uid===U.tgt},p.name+(p.x==null?' (mati/baru)':'')))),
+    h('div',{class:'it'},list.map(i=>h('div',{class:U.sel===i[0]?'sel':'',onclick:()=>{U.sel=i[0];draw();}},i[1]+' ',h('small',{},'#'+i[0])))),
+    'jumlah ',bind('qty','qty','number'),' kondisi ',bind('cond','cond','number'),'% ',h('br'),
+    h('small',{},U.sel?'Terpilih: '+nm(U.sel):'Pilih barang di atas.'),h('br'),
+    b('Beri sekarang',()=>{if(!U.sel||!tp)return alert('Pilih barang dan pemain (yang hidup).');act('item',{peer:tp.id,itemId:U.sel,qty:Number(U.qty)||1,cond:Number(U.cond)||100});}),
+    b('Beri saat hidup lagi',()=>{if(!U.sel||!U.tgt)return alert('Pilih barang dan pemain.');const p=ps.find(x=>x.uid===U.tgt);
+      api('gift?uid='+encodeURIComponent(U.tgt)+'&name='+encodeURIComponent(p?p.name:'')+'&itemId='+U.sel+'&qty='+encodeURIComponent(U.qty)+'&cond='+encodeURIComponent(U.cond)).then(j=>{alert(j.ok?'Masuk antrean. Dikirim saat pemain respawn / masuk lagi.':j.error);load();});},'g'),
+    b('Tambah ke kit',()=>{if(!U.sel)return;setKit({items:K2.items.concat([U.sel]).slice(0,20)});}),
+    h('small',{},' "Beri sekarang" gagal bila pemain sedang mati (tidak ada posisi). Pakai "Beri saat hidup lagi" atau kit dengan "juga setelah mati".'),
+    h('h4',{},'Perlengkapan awal (pendatang baru)'),
+    h('label',{},h('input',{type:'checkbox',checked:K2.on,onchange:e=>setKit({on:e.target.checked})}),' berikan '),
+    h('label',{},h('input',{type:'checkbox',checked:K2.respawn,onchange:e=>setKit({respawn:e.target.checked})}),' juga setelah mati '),
+    ' kondisi ',h('input',{type:'number',value:K2.cond,min:1,max:100,onchange:e=>setKit({cond:Number(e.target.value)||100})}),'%',h('br'),
+    K2.items.length?K2.items.map((id,n)=>b(nm(id)+' ×',()=>{const a=K2.items.slice();a.splice(n,1);setKit({items:a});})):h('small',{},'Kit kosong. Pilih barang lalu "Tambah ke kit".'),
+    h('h4',{},'Antrean hadiah ('+(S.gifts||[]).length+')'),
+    (S.gifts||[]).length?S.gifts.map((g,i)=>h('div',{class:'row'},h('span',{},(g.name||g.uid.slice(0,8))+' ← '+g.qty+'× '+nm(g.itemId)),b('Hapus',()=>api('giftdel?i='+i).then(load),'r'))):h('small',{},'Kosong.'));
+}
+function dunia(){
+  const bk=S.bunker||{},fe=S.ferry;
+  const bt=bk.none?'tidak ada / tertutup':bk.phase===1?'terbuka, sisa '+Math.round(bk.left/60)+' menit':bk.phase===2?'menutup, gas '+Math.round(bk.left/60)+' menit':'tertutup, buka dalam '+Math.round(bk.left/60)+' menit';
+  return h('div',{},h('h4',{},'Dunia'),
+    'jam ',bind('hr','hour','number'),':00 ',b('Atur',()=>act('time',{minutes:(Number(U.hour)||0)*60})),
+    b('PvP '+(S.pvp?'ON':'OFF'),()=>act('pvp',{on:!S.pvp}),S.pvp?'on':''),h('br'),
+    h('input',{id:'say',placeholder:'pengumuman untuk semua orang',value:U.say,style:'width:70%',oninput:e=>{U.say=e.target.value;}}),b('Kirim',()=>{if(U.say){act('say',{text:U.say});U.say='';}}),
+    h('br'),h('b',{},'Bunker '),h('small',{},bt),h('br'),b('Buka sekarang',()=>act('bunker',{act:'open'})),b('Tutup sekarang',()=>act('bunker',{act:'close'})),
+    fe?[h('br'),h('b',{},'Perahu / voting '),h('small',{},'ke pulau '+fe.to+', '+fe.left+' dtk'),b('Berangkat sekarang',()=>act('ferry',{act:'now'}))]:null,
+    h('br'),b('Simpan dunia sekarang',()=>act('save',{})),
+    h('div',{},'pindah semua ke pulau ',h('select',{id:'isl'},[1,2,3,4,5,6,7,8,9].map(n=>h('option',{value:n},n))),b('Pindah',()=>{const n=Number(isl.value);if(confirm('Pindahkan SEMUA pemain ke pulau '+n+'?'))act('island',{n});},'r')),
+    h('h4',{},'Chat terakhir'),(S.chat||[]).length?h('div',{},S.chat.slice(-15).map(c=>h('div',{},h('b',{},c[0]+': '),c[1]))):h('small',{},'Belum ada.'));
+}
+function aturan(){
+  const ru=S.rules||{};
+  return h('div',{},h('h4',{},'Aturan dunia'),h('small',{},'Kosong = bawaan game. Perubahan berlaku langsung.'),RD.map(d=>{
+    const v=ru[d.k];let el;
+    if(d.type==='b'){el=h('select',{onchange:e=>act('rule',{key:d.k,value:e.target.value===''?'':Number(e.target.value)})},[['','bawaan'],['0','mati'],['1','nyala']].map(o=>h('option',{value:o[0],selected:String(v===undefined?'':v)===o[0]},o[1])));}
+    else{el=h('input',{type:'number',step:'any',min:d.min,max:d.max,placeholder:d.min+'-'+d.max,value:v===undefined?'':v,onchange:e=>act('rule',{key:d.k,value:e.target.value===''?'':Number(e.target.value)})});}
+    return h('div',{class:'row'},h('span',{},d.label),el);}));
+}
+function aman(){
+  const ac=S.ac||{cfg:{},log:[]},c0=ac.cfg||{},bn=S.bans||{uid:{},ip:{}};
+  const ACT=[['notify','beri tahu admin'],['kick','kick'],['ban','ban'],['banip','ban + IP']];
+  const sel=(k)=>h('select',{onchange:e=>act('accfg',{[k]:e.target.value})},ACT.map(a=>h('option',{value:a[0],selected:c0[k]===a[0]},a[1])));
+  const bl=[];Object.keys(bn.uid||{}).forEach(u=>{const e=bn.uid[u];bl.push(h('div',{class:'row'},h('span',{},e.name+' ',h('small',{},u.slice(0,10)+(e.why?' - '+e.why:''))),b('Unban',()=>act('unban',{uid:u}))));});
+  Object.keys(bn.ip||{}).forEach(ip=>{const e=bn.ip[ip];bl.push(h('div',{class:'row'},h('span',{},e.name+' ',h('small',{},'IP '+ip)),b('Unban',()=>act('unban',{ip}))));});
+  return h('div',{},h('h4',{},'Anti-cheat'),h('label',{},h('input',{type:'checkbox',checked:!!c0.on,onchange:e=>act('accfg',{on:e.target.checked})}),' nyala '),
+    h('br'),'curang pasti: ',sel('sure'),h('br'),'mencurigakan: ',sel('sus'),
+    (ac.log||[]).slice(0,20).map(e=>h('div',{class:'row'},h('span',{},new Date(e.at).toLocaleTimeString()+' ',h('b',{},e.name),' ',h('small',{},String(e.level||'')+' '+JSON.stringify(e.why||e.reasons||'').slice(0,80))),
+      e.uid||e.ip?b('Ban',()=>{if(confirm('Ban '+e.name+'?'))act('banid',{uid:e.uid||'',ip:e.ip||'',name:e.name||'',text:'anti-cheat'});},'r'):null)),
+    (ac.log||[]).length?null:h('div',{},h('small',{},'Tidak ada yang ditandai.')),
+    h('h4',{},'Ban'),bl.length?bl:h('small',{},'Tidak ada.'));
+}
+function log(){
+  const hide=U.hideMem!==false;
+  return h('div',{},h('label',{},h('input',{type:'checkbox',checked:hide,onchange:e=>{U.hideMem=e.target.checked;draw();}}),' sembunyikan [mem]'),
+    h('pre',{},LOGS.filter(x=>!(hide&&x.s.startsWith('[mem]'))).slice(-200).map(x=>h('div',{class:/crash|gagal|error|putus/i.test(x.s)?'e':''},new Date(x.t).toLocaleTimeString()+'  '+x.s))));
+}
+load();setInterval(load,3000);
+</script>
