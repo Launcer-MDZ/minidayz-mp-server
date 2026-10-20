@@ -1,13 +1,16 @@
 // Menjalankan hub + host dedicated (Chromium headless membuka game dengan ?dedicated=1).
 const path = require('path');
 const fs = require('fs');
-const { createHub } = require('./hub');
+const { createHub, pushLog } = require('./hub');
+
+// semua log ikut disimpan di buffer hub supaya bisa dibaca dari /admin/logs
+for (const k of ['log', 'error']) { const orig = console[k].bind(console); console[k] = (...a) => { orig(...a); try { pushLog(a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ')); } catch (e) {} }; }
 
 const env = process.env;
 const PORT = Number(env.PORT) || 7777;
 const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /data supaya dunia tersimpan
 const cfg = {
-  name: env.SERVER_NAME || 'MiniDayZ Server Indonesia',
+  name: env.SERVER_NAME || 'MiniDayZ Server',
   pw: env.SERVER_PASSWORD || '',
   max: Number(env.MAX_PLAYERS) || 10,
   pvp: env.PVP === '0' ? 0 : 1,

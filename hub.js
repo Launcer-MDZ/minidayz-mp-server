@@ -6,6 +6,10 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PROTO = 'np1';
+
+// Buffer log terakhir (dibaca halaman /admin/logs). start.js mengisinya dari console.log.
+const LOGBUF = [];
+function pushLog(line) { LOGBUF.push({ t: Date.now(), s: String(line).slice(0, 400) }); if (LOGBUF.length > 600) LOGBUF.splice(0, LOGBUF.length - 600); }
 const GAME_DIR = path.join(__dirname, 'game');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.gif': 'image/gif', '.css': 'text/css', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
@@ -25,6 +29,67 @@ function createHub(opts = {}) {
   const peers = new Map();          // id -> { ws, id, name, uid, ip }
   const queue = [];                 // { ws, hello, ip }
   let seq = 1;
+
+  // ---- fitur admin: hak admin per UID perangkat (disimpan di file), diberikan lewat host ----
+  const ADMIN_KEY = process.env.ADMIN_KEY || '';
+  const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : path.join(__dirname, '.data'));
+  const ADMIN_FILE = path.join(DATA_DIR, 'hub-admins.json');
+  const adminUids = new Set(String(process.env.ADMIN_UIDS || '').split(',').map(x => x.trim()).filter(Boolean));
+  try { JSON.parse(fs.readFileSync(ADMIN_FILE, 'utf8')).forEach(u => adminUids.add(String(u))); } catch (e) {}
+  function saveAdmins() { try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(ADMIN_FILE, JSON.stringify([...adminUids])); } catch (e) { log('gagal simpan admin: ' + e.message); } }
+  // perintah ke host dari hub ("srv"): host menjalankannya sebagai perintah admin
+  function sendAc(c, a) { if (host) send(host.ws, { t: 'msg', from: 'srv', tag: 'ac', data: JSON.stringify({ c, a }) }); }
+  function kickPeer(id, reason, text) {
+    const p = peers.get(String(id)); if (!p) return false;
+    send(p.ws, { t: 'refused', reason: reason === 'banned' ? 'banned' : 'kicked', text: String(text || '') });
+    setTimeout(() => { try { p.ws.close(); } catch (e) {} }, 80);
+    return true;
+  }
+  function keyOk(k) {
+    if (!ADMIN_KEY || typeof k !== 'string' || k.length !== ADMIN_KEY.length) return false;
+    let d = 0; for (let i = 0; i < k.length; i++) d |= k.charCodeAt(i) ^ ADMIN_KEY.charCodeAt(i); return d === 0;
+  }
+  function adminDo(c, id, on) {
+    const p = peers.get(String(id)); if (!p || !host) return { ok: false, error: 'pemain tidak ada' };
+    log(`admin: ${c}${c === 'admin' ? (on ? ' ON' : ' OFF') : ''} -> ${p.name} (${p.id})`);
+    if (c === 'admin') {
+      if (!p.uid) return { ok: false, error: 'pemain tanpa UID' };
+      if (on) adminUids.add(p.uid); else adminUids.delete(p.uid);
+      saveAdmins(); sendAc('admin', { peer: p.id, on: !!on }); return { ok: true };
+    }
+    if (c === 'kick') { sendAc('kick', { peer: p.id, text: 'Dikeluarkan admin' }); return { ok: true }; }
+    return { ok: false, error: 'perintah tidak dikenal' };
+  }
+  const LOG_PAGE = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Log</title>
+<style>body{font:13px ui-monospace,monospace;background:#111;color:#ddd;margin:10px}a{color:#8cf}label{margin-left:12px}#o{white-space:pre-wrap;word-break:break-word;margin-top:8px}.t{color:#777}.e{color:#f88}</style>
+<a id=bk>Kembali ke admin</a><label><input type=checkbox id=hm checked> sembunyikan [mem]</label><div id=o>memuat...</div>
+<script>
+const K=new URLSearchParams(location.search).get('key')||'';bk.href='/admin?key='+encodeURIComponent(K);
+async function load(){try{const r=await fetch('/admin/logdata?key='+encodeURIComponent(K));if(!r.ok){o.textContent='Kunci salah';return}
+const j=await r.json();const near=innerHeight+scrollY>=document.body.scrollHeight-60;o.textContent='';
+j.lines.filter(x=>!(hm.checked&&x.s.startsWith('[mem]'))).slice(-250).forEach(x=>{const d=document.createElement('div');
+const t=document.createElement('span');t.className='t';t.textContent=new Date(x.t).toLocaleTimeString()+'  ';d.appendChild(t);
+const m=document.createElement('span');m.textContent=x.s;if(/crash|gagal|error|putus/i.test(x.s))m.className='e';d.appendChild(m);o.appendChild(d);});
+if(near)scrollTo(0,document.body.scrollHeight);}catch(e){o.textContent='Gagal memuat';}}
+load();setInterval(load,4000);
+</script>`;
+  const ADMIN_PAGE = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Admin</title>
+<style>body{font:16px system-ui;background:#111;color:#eee;margin:12px}h3{margin:0 0 8px}.p{border:1px solid #444;border-radius:8px;padding:8px;margin:8px 0}
+small{color:#999;word-break:break-all}button{font:inherit;margin:6px 6px 0 0;padding:8px 12px;border-radius:6px;border:0;background:#2d6a2d;color:#fff}button.r{background:#8a2b2b}button.g{background:#555}</style>
+<h3 id=t>Pemain</h3><a id=lg style="color:#8cf">Lihat log server</a><div id=l>memuat...</div>
+<script>
+const K=new URLSearchParams(location.search).get('key')||'';lg.href='/admin/logs?key='+encodeURIComponent(K);
+async function go(c,id,on){const r=await fetch('/admin/do?key='+encodeURIComponent(K)+'&c='+c+'&peer='+encodeURIComponent(id)+'&on='+(on?1:0));const j=await r.json();if(!j.ok)alert(j.error||'gagal');load();}
+function btn(txt,cls,fn){const b=document.createElement('button');b.textContent=txt;if(cls)b.className=cls;b.onclick=fn;return b;}
+async function load(){try{const r=await fetch('/admin/players?key='+encodeURIComponent(K));if(!r.ok){l.textContent='Kunci salah';return}const j=await r.json();
+t.textContent='Pemain: '+j.players.length+'/'+j.max+(j.online?'':' (host offline)');l.textContent='';
+if(!j.players.length)l.textContent='Belum ada pemain.';
+j.players.forEach(p=>{const d=document.createElement('div');d.className='p';const n=document.createElement('b');n.textContent=p.name+(p.admin?'  [ADMIN]':'');d.appendChild(n);d.appendChild(document.createElement('br'));
+const u=document.createElement('small');u.textContent='UID: '+p.uid;d.appendChild(u);d.appendChild(document.createElement('br'));
+d.appendChild(p.admin?btn('Cabut admin','g',()=>go('admin',p.id,0)):btn('Jadikan admin','',()=>go('admin',p.id,1)));
+d.appendChild(btn('Kick','r',()=>{if(confirm('Kick '+p.name+'?'))go('kick',p.id,0)}));l.appendChild(d);});}catch(e){l.textContent='Gagal memuat';}}
+load();setInterval(load,5000);
+</script>`;
 
   const send = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
   const everyone = () => [host, ...peers.values()].filter(Boolean);
@@ -46,7 +111,8 @@ function createHub(opts = {}) {
     send(ws, { t: 'welcome', id, host: false, room, players: playerList().filter(x => x.id !== id), name: p.name, now: Date.now() });
     const ev = { t: 'joined', id, name: p.name, uid: p.uid, ip };
     everyone().forEach(x => { if (x.ws !== ws) send(x.ws, ev); });
-    log(`+ ${p.name} (${id}) ${ip}  [${peers.size}/${room.max}]`);
+    log(`+ ${p.name} (${id}) uid=${p.uid || '-'} ${ip}  [${peers.size}/${room.max}]`);
+    if (p.uid && adminUids.has(p.uid)) setTimeout(() => { if (peers.has(id)) sendAc('admin', { peer: id, on: true }); }, 1500);
   }
 
   function pumpQueue() {
@@ -82,6 +148,7 @@ function createHub(opts = {}) {
   function onMessage(ws, m) {
     const me = ws.mdz; if (!me) return;
     if (m.t === 'ping') return send(ws, { t: 'pong', ts: m.ts });
+    if (m.t === 'kick' && ws.mdzHost) { kickPeer(m.id, m.reason, m.text); return; }
     if (m.t === 'msg') {
       const out = { t: 'msg', from: me.id, tag: m.tag, data: m.data };
       const to = m.to;
@@ -110,6 +177,19 @@ function createHub(opts = {}) {
 
   function serveStatic(req, res) {
     const url = new URL(req.url, 'http://x');
+    if (url.pathname.startsWith('/admin')) {
+      if (!ADMIN_KEY) { res.writeHead(404); return res.end('admin nonaktif'); }
+      if (!keyOk(url.searchParams.get('key') || '')) { return setTimeout(() => { res.writeHead(403); res.end('kunci salah'); }, 800); }
+      if (url.pathname === '/admin') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(ADMIN_PAGE); }
+      if (url.pathname === '/admin/logs') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(LOG_PAGE); }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      if (url.pathname === '/admin/logdata') return res.end(JSON.stringify({ lines: LOGBUF.slice(-400) }));
+      if (url.pathname === '/admin/players')
+        return res.end(JSON.stringify({ online: !!host, max: room ? room.max : 0, players: [...peers.values()].map(p => ({ id: p.id, name: p.name, uid: p.uid, admin: adminUids.has(p.uid) })) }));
+      if (url.pathname === '/admin/do')
+        return res.end(JSON.stringify(adminDo(url.searchParams.get('c'), url.searchParams.get('peer'), url.searchParams.get('on') === '1')));
+      return res.end('{"ok":false}');
+    }
     if (url.pathname === '/health') { res.writeHead(200); return res.end('ok'); }
     if (url.pathname === '/status') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -148,7 +228,7 @@ function createHub(opts = {}) {
   return { server, wss, state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
 }
 
-module.exports = { createHub, PROTO };
+module.exports = { createHub, PROTO, pushLog };
 if (require.main === module) {
   const port = Number(process.env.PORT) || 7777;
   createHub().server.listen(port, '0.0.0.0', () => console.log('hub di port', port));
