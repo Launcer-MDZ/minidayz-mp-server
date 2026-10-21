@@ -22,11 +22,12 @@ const h=(t,p,...c)=>{const e=document.createElement(t);for(const k in(p||{})){co
 c.flat(9).forEach(x=>{if(x!=null&&x!==false)e.append(x.nodeType?x:String(x));});return e;};
 const b=(t,f,cls)=>h('button',{onclick:f,class:cls||''},t);
 let S=null,ITEMS=[],RD=[],LOGS=[];
-const U={tab:'pemain',q:'',sel:null,qty:'1',cond:'100',tgt:'',hour:'12',say:''};
+const U={tab:'pemain',q:'',cat:'all',sel:null,qty:'1',st:'',cond:'100',tgt:'',hour:'12',say:''};
 const TABS=[['pemain','Pemain'],['barang','Barang & kit'],['dunia','Dunia'],['aturan','Aturan'],['aman','Keamanan'],['log','Log']];
 const nm=id=>{const x=ITEMS.find(i=>i[0]===id);return x?x[1]:'#'+id;};
+const ACTN={notify:'beri tahu admin',kick:'kick',ban:'ban',banip:'ban + IP','allowed (admin)':'diizinkan (admin)',logged:'dicatat'};
 const typing=()=>{const a=document.activeElement;return a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)&&app.contains(a);};
-const bind=(id,k,type)=>h('input',{id,type:type||'text',value:U[k],oninput:e=>{U[k]=e.target.value;}});
+const bind=(id,k,type,ph)=>h('input',{id,type:type||'text',value:U[k],placeholder:ph||null,oninput:e=>{U[k]=e.target.value;}});
 
 async function load(){
   try{S=await api('state');if(!ITEMS.length)ITEMS=(await api('items')).items||[];if(!RD.length)RD=(await api('rulesdata')).defs||[];
@@ -57,27 +58,31 @@ function pemain(){
     h('small',{},'Kendaraan dan NPC hanya bisa dimunculkan dari panel admin di game (butuh posisi admin).'));
 }
 function barang(){
-  const q=U.q.toLowerCase(),list=ITEMS.filter(i=>!q||i[1].toLowerCase().includes(q)||String(i[0])===q).slice(0,60);
+  const q=U.q.toLowerCase(),cats=['all'].concat([...new Set(ITEMS.map(i=>i[2]))]);
+  const list=ITEMS.filter(i=>(U.cat==='all'||i[2]===U.cat)&&(!q||i[1].toLowerCase().includes(q)||String(i[0])===q)).slice(0,60);
+  const M=ITEMS.find(i=>i[0]===U.sel),gun=M&&(M[2]==='Rifle'||M[2]==='Pistol'),can=!!M&&M[3]!==0,lbl=!M?'STACK':gun?'AMMO':M[4]?'CHARGE %':'STACK';
   const ps=(S.players||[]).filter(p=>p.id!=='h'&&p.uid);
   const tp=ps.find(p=>p.uid===U.tgt);const K2=S.kit||{on:false,respawn:false,cond:100,items:[]};
   const setKit=o=>act('kit',Object.assign({on:K2.on,respawn:K2.respawn,cond:K2.cond,items:K2.items},o));
+  const qs='&qty='+encodeURIComponent(U.qty)+'&cond='+encodeURIComponent(U.cond)+'&st='+encodeURIComponent(U.st);
   return h('div',{},h('h4',{},'Barang'),
-    bind('q','q'),' ',h('select',{onchange:e=>{U.tgt=e.target.value;}},h('option',{value:''},'pilih pemain'),ps.map(p=>h('option',{value:p.uid,selected:p.uid===U.tgt},p.name+(p.x==null?' (mati/baru)':'')))),
-    h('div',{class:'it'},list.map(i=>h('div',{class:U.sel===i[0]?'sel':'',onclick:()=>{U.sel=i[0];draw();}},i[1]+' ',h('small',{},'#'+i[0])))),
-    'jumlah ',bind('qty','qty','number'),' kondisi ',bind('cond','cond','number'),'% ',h('br'),
-    h('small',{},U.sel?'Terpilih: '+nm(U.sel):'Pilih barang di atas.'),h('br'),
-    b('Beri sekarang',()=>{if(!U.sel||!tp)return alert('Pilih barang dan pemain (yang hidup).');act('item',{peer:tp.id,itemId:U.sel,qty:Number(U.qty)||1,cond:Number(U.cond)||100});}),
-    b('Beri saat hidup lagi',()=>{if(!U.sel||!U.tgt)return alert('Pilih barang dan pemain.');const p=ps.find(x=>x.uid===U.tgt);
-      api('gift?uid='+encodeURIComponent(U.tgt)+'&name='+encodeURIComponent(p?p.name:'')+'&itemId='+U.sel+'&qty='+encodeURIComponent(U.qty)+'&cond='+encodeURIComponent(U.cond)).then(j=>{alert(j.ok?'Masuk antrean. Dikirim saat pemain respawn / masuk lagi.':j.error);load();});},'g'),
+    h('select',{onchange:e=>{U.cat=e.target.value;draw();}},cats.map(c=>h('option',{value:c,selected:c===U.cat},c==='all'?'Semua':c))),' ',bind('q','q','text','cari nama / ID'),' ',
+    h('select',{onchange:e=>{U.tgt=e.target.value;}},h('option',{value:''},'pilih pemain'),ps.map(p=>h('option',{value:p.uid,selected:p.uid===U.tgt},p.name+(p.x==null?' (mati/baru)':'')))),
+    h('div',{class:'it'},list.map(i=>h('div',{class:U.sel===i[0]?'sel':'',onclick:()=>{U.sel=i[0];draw();}},i[1]+' ',h('small',{},i[2]+' #'+i[0]+(i[3]===0?' (tidak bisa dibuat)':''))))),
+    h('div',{style:'margin-top:8px'},'QTY ',bind('qty','qty','number'),' ',lbl,' ',bind('st','st','number',M&&M[4]&&!gun?'auto':''),' COND % ',bind('cond','cond','number')),
+    h('small',{},M?'Terpilih: '+M[1]+(can?'':' - game tidak bisa membuat barang ini'):'Pilih barang di atas.'),h('br'),
+    b('Beri sekarang',()=>{if(!can||!tp)return alert('Pilih barang yang bisa dibuat dan pemain (yang hidup).');api('give?peer='+tp.id+'&id='+U.sel+qs).then(j=>{if(!j.ok)alert(j.error);load();});},can?'':'g'),
+    b('Beri saat hidup lagi',()=>{if(!can||!U.tgt)return alert('Pilih barang yang bisa dibuat dan pemain.');const p=ps.find(x=>x.uid===U.tgt);
+      api('gift?uid='+encodeURIComponent(U.tgt)+'&name='+encodeURIComponent(p?p.name:'')+'&itemId='+U.sel+qs).then(j=>{alert(j.ok?'Masuk antrean. Dikirim saat pemain respawn / masuk lagi.':j.error);load();});},'g'),
     b('Tambah ke kit',()=>{if(!U.sel)return;setKit({items:K2.items.concat([U.sel]).slice(0,20)});}),
-    h('small',{},' "Beri sekarang" gagal bila pemain sedang mati (tidak ada posisi). Pakai "Beri saat hidup lagi" atau kit dengan "juga setelah mati".'),
+    h('small',{},' STACK = jumlah dalam satu tumpukan; AMMO untuk senjata; CHARGE % untuk barang berbaterai (kosong = otomatis). "Beri sekarang" gagal bila pemain sedang mati.'),
     h('h4',{},'Perlengkapan awal (pendatang baru)'),
     h('label',{},h('input',{type:'checkbox',checked:K2.on,onchange:e=>setKit({on:e.target.checked})}),' berikan '),
     h('label',{},h('input',{type:'checkbox',checked:K2.respawn,onchange:e=>setKit({respawn:e.target.checked})}),' juga setelah mati '),
     ' kondisi ',h('input',{type:'number',value:K2.cond,min:1,max:100,onchange:e=>setKit({cond:Number(e.target.value)||100})}),'%',h('br'),
     K2.items.length?K2.items.map((id,n)=>b(nm(id)+' ×',()=>{const a=K2.items.slice();a.splice(n,1);setKit({items:a});})):h('small',{},'Kit kosong. Pilih barang lalu "Tambah ke kit".'),
     h('h4',{},'Antrean hadiah ('+(S.gifts||[]).length+')'),
-    (S.gifts||[]).length?S.gifts.map((g,i)=>h('div',{class:'row'},h('span',{},(g.name||g.uid.slice(0,8))+' ← '+g.qty+'× '+nm(g.itemId)),b('Hapus',()=>api('giftdel?i='+i).then(load),'r'))):h('small',{},'Kosong.'));
+    (S.gifts||[]).length?S.gifts.map((g,i)=>h('div',{class:'row'},h('span',{},(g.name||g.uid.slice(0,8))+' ← '+g.qty+'× '+nm(g.itemId)+(g.st?' ('+g.st+')':'')),b('Hapus',()=>api('giftdel?i='+i).then(load),'r'))):h('small',{},'Kosong.'));
 }
 function dunia(){
   const bk=S.bunker||{},fe=S.ferry;
@@ -104,12 +109,19 @@ function aman(){
   const ac=S.ac||{cfg:{},log:[]},c0=ac.cfg||{},bn=S.bans||{uid:{},ip:{}};
   const ACT=[['notify','beri tahu admin'],['kick','kick'],['ban','ban'],['banip','ban + IP']];
   const sel=(k)=>h('select',{onchange:e=>act('accfg',{[k]:e.target.value})},ACT.map(a=>h('option',{value:a[0],selected:c0[k]===a[0]},a[1])));
+  const per={},tot={},key=e=>String(e.name||'').toLowerCase();
+  (ac.log||[]).forEach(e=>{tot[key(e)]=(tot[key(e)]||0)+1;});
+  const shown=(ac.log||[]).filter(e=>{const k=key(e);per[k]=(per[k]||0)+1;return per[k]<=2;}).slice(0,20);   // maksimal 2 entri terbaru per nama
   const bl=[];Object.keys(bn.uid||{}).forEach(u=>{const e=bn.uid[u];bl.push(h('div',{class:'row'},h('span',{},e.name+' ',h('small',{},u.slice(0,10)+(e.why?' - '+e.why:''))),b('Unban',()=>act('unban',{uid:u}))));});
   Object.keys(bn.ip||{}).forEach(ip=>{const e=bn.ip[ip];bl.push(h('div',{class:'row'},h('span',{},e.name+' ',h('small',{},'IP '+ip)),b('Unban',()=>act('unban',{ip}))));});
   return h('div',{},h('h4',{},'Anti-cheat'),h('label',{},h('input',{type:'checkbox',checked:!!c0.on,onchange:e=>act('accfg',{on:e.target.checked})}),' nyala '),
     h('br'),'curang pasti: ',sel('sure'),h('br'),'mencurigakan: ',sel('sus'),
-    (ac.log||[]).slice(0,20).map(e=>h('div',{class:'row'},h('span',{},new Date(e.at).toLocaleTimeString()+' ',h('b',{},e.name),' ',h('small',{},String(e.level||'')+' '+JSON.stringify(e.why||e.reasons||'').slice(0,80))),
-      e.uid||e.ip?b('Ban',()=>{if(confirm('Ban '+e.name+'?'))act('banid',{uid:e.uid||'',ip:e.ip||'',name:e.name||'',text:'anti-cheat'});},'r'):null)),
+    (ac.log||[]).length?h('div',{},b('Hapus log keamanan',()=>{if(confirm('Hapus semua log keamanan dari tampilan web?'))api('acclear').then(()=>load());},'r'),h('small',{},' '+(ac.log||[]).length+' tercatat, ditampilkan maks. 2 terbaru per nama')):null,
+    shown.map(e=>h('div',{class:'c'},
+      new Date(e.at).toLocaleTimeString()+' ',h('b',{},e.name),' ',h('small',{},(e.level==='sure'?'curang':'mencurigakan')+' ('+(ACTN[e.act]||e.act)+')'+(e.ip?' · '+e.ip:'')+(tot[key(e)]>2?' · '+tot[key(e)]+'× tercatat':'')),h('br'),
+      h('small',{},e.what||''),h('br'),
+      e.uid?b('Ban',()=>{if(confirm('Ban '+e.name+'?'))act('banid',{uid:e.uid,ip:'',name:e.name||'',text:'anti-cheat'});},'r'):null,
+      e.ip?b('Ban + IP',()=>{if(confirm('Ban '+e.name+' + IP?'))act('banid',{uid:e.uid||'',ip:e.ip,name:e.name||'',text:'anti-cheat'});},'r'):null)),
     (ac.log||[]).length?null:h('div',{},h('small',{},'Tidak ada yang ditandai.')),
     h('h4',{},'Ban'),bl.length?bl:h('small',{},'Tidak ada.'));
 }
