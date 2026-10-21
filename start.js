@@ -10,7 +10,7 @@ const env = process.env;
 const PORT = Number(env.PORT) || 7777;
 const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /data supaya dunia tersimpan
 const cfg = {
-  name: env.SERVER_NAME || 'MiniDayZ Server Indonesia',
+  name: env.SERVER_NAME || 'MiniDayZ Server',
   pw: env.SERVER_PASSWORD || '',
   max: Number(env.MAX_PLAYERS) || 10,
   pvp: env.PVP === '0' ? 0 : 1,
@@ -21,6 +21,17 @@ const cfg = {
 // Sumber game: GAME_URL (default: situs GitHub Pages milikmu) atau folder game/ lokal bila ada.
 const GAME_URL = env.GAME_URL || 'https://launcer-mdz.github.io/ReimaginedMP/';
 const hasLocal = fs.existsSync(path.join(__dirname, 'game', 'index.html'));
+
+// Tingkat kesulitan dunia BARU (DIFFICULTY): game selalu mengisi "Regular" saat server membuat dunia baru.
+const DIFF_MAP = { novice: 'Novice', pemula: 'Novice', regular: 'Regular', reguler: 'Regular', biasa: 'Regular', veteran: 'Veteran', legend: 'Legend', legendaris: 'Legend' };
+const DIFF = env.DIFFICULTY ? DIFF_MAP[String(env.DIFFICULTY).trim().toLowerCase()] : null;
+if (env.DIFFICULTY && !DIFF) console.log('DIFFICULTY tidak dikenal:', env.DIFFICULTY, '(pilih: pemula, biasa, veteran, legendaris)');
+
+// Event dunia BARU (EVENTS=natal,halloween): variabel game dlc_1 = Natal, dlc_2 = Halloween (tombol di layar dunia baru).
+const EVT = { natal: 'dlc_1', christmas: 'dlc_1', xmas: 'dlc_1', halloween: 'dlc_2', helloween: 'dlc_2' };
+const WANT_VARS = {};
+String(env.EVENTS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean).forEach(n => { if (EVT[n]) WANT_VARS[EVT[n]] = 1; else console.log('EVENTS tidak dikenal:', n, '(pilih: natal, halloween)'); });
+if (DIFF) WANT_VARS.Difficulty = DIFF;
 
 const hub = createHub();
 hub.server.listen(PORT, '0.0.0.0', () => { console.log('hub siap di port', PORT); launch(); });
@@ -46,6 +57,22 @@ async function launch() {
         '--disable-backgrounding-occluded-windows', ...(env.DISABLE_GPU === '1' ? ['--disable-gpu', '--disable-software-rasterizer'] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--in-process-gpu']),
         '--disable-extensions', '--disable-features=site-per-process,TranslateUI', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--allow-running-insecure-content'],
     });
+    if (Object.keys(WANT_VARS).length) {
+      // Mengisi variabel global setelah event menu menimpanya (Difficulty = "Regular", dlc_* = 0), dan sebelum dunia dimulai.
+      await ctx.addInitScript((want) => {
+        let rt = null;
+        setInterval(() => {
+          try {
+            if (!rt) { if (typeof window.cr_getC2Runtime !== 'function') return; rt = window.cr_getC2Runtime(); if (!rt) return; }
+            const wa = rt.wa; if (!wa || !rt.tD) return;
+            if (wa.name !== 'Menu' && wa.name !== 'Loading' && wa.name !== 'Login') return;      // dunia sudah berjalan: jangan diubah
+            const ded = rt.tD.find(x => x && x.name === 'mp_ded_new'); if (!ded || Number(ded.data) !== 1) return;
+            for (const k in want) { const g = rt.tD.find(x => x && x.name === k); if (g && g.data !== want[k]) { g.data = want[k]; console.error('[dunia baru] ' + k + ' = ' + want[k]); } }
+          } catch (e) {}
+        }, 20);
+      }, WANT_VARS);
+      console.log('pengaturan dunia baru:', JSON.stringify(WANT_VARS));
+    }
     const page = ctx.pages()[0] || await ctx.newPage();
     page.on('console', m => { if (m.type() === 'error') console.log('[game]', m.text().slice(0, 200)); });
     page.on('pageerror', e => console.log('[pageerror]', String(e.message || e).slice(0, 200)));
