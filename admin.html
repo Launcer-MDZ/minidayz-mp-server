@@ -22,8 +22,8 @@ const h=(t,p,...c)=>{const e=document.createElement(t);for(const k in(p||{})){co
 c.flat(9).forEach(x=>{if(x!=null&&x!==false)e.append(x.nodeType?x:String(x));});return e;};
 const b=(t,f,cls)=>h('button',{onclick:f,class:cls||''},t);
 let S=null,ITEMS=[],RD=[],LOGS=[];
-const U={tab:'pemain',q:'',cat:'all',sel:null,qty:'1',st:'',cond:'100',tgt:'',hour:'12',say:''};
-const TABS=[['pemain','Pemain'],['barang','Barang & kit'],['dunia','Dunia'],['aturan','Aturan'],['aman','Keamanan'],['log','Log']];
+const U={nk:'1',nn:'1',na:'',nbv:'',vbv:'',tab:'pemain',q:'',cat:'all',sel:null,qty:'1',st:'',cond:'100',tgt:'',hour:'12',say:''};
+const TABS=[['pemain','Pemain'],['barang','Barang & kit'],['dunia','Dunia'],['spawn','Spawn'],['aturan','Aturan'],['aman','Keamanan'],['log','Log']];
 const nm=id=>{const x=ITEMS.find(i=>i[0]===id);return x?x[1]:'#'+id;};
 const ACTN={notify:'beri tahu admin',kick:'kick',ban:'ban',banip:'ban + IP','allowed (admin)':'diizinkan (admin)',logged:'dicatat'};
 const typing=()=>{const a=document.activeElement;return a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)&&app.contains(a);};
@@ -39,7 +39,7 @@ function draw(){
   if(!S){app.replaceChildren('Gagal memuat (kunci salah atau server mati).');return;}
   ttl.textContent=S.name||'MiniDayZ Admin';
   sub.textContent=(S.online?'online':'host offline')+(S.fps!=null?' · '+S.fps+' fps':'')+(S.mem!=null?' · '+S.mem+' MB':'')+(S.world?' · hari '+S.world.day+' · '+Math.floor(S.world.time/60)+':'+('0'+Math.round(S.world.time%60)).slice(-2):'');
-  const f={pemain:pemain,barang:barang,dunia:dunia,aturan:aturan,aman:aman,log:log}[U.tab];
+  const f={pemain:pemain,barang:barang,dunia:dunia,spawn:spawn,aturan:aturan,aman:aman,log:log}[U.tab];
   app.replaceChildren(f());
 }
 function pemain(){
@@ -96,6 +96,32 @@ function dunia(){
     h('br'),b('Simpan dunia sekarang',()=>act('save',{})),
     h('div',{},'pindah semua ke pulau ',h('select',{id:'isl'},[1,2,3,4,5,6,7,8,9].map(n=>h('option',{value:n},n))),b('Pindah',()=>{const n=Number(isl.value);if(confirm('Pindahkan SEMUA pemain ke pulau '+n+'?'))act('island',{n});},'r')),
     h('h4',{},'Chat terakhir'),(S.chat||[]).length?h('div',{},S.chat.slice(-15).map(c=>h('div',{},h('b',{},c[0]+': '),c[1]))):h('small',{},'Belum ada.'));
+}
+function spawn(){
+  const ru=S.rules||{},nb=ru.mp_npc_budget===undefined?30:ru.mp_npc_budget,vb=ru.mp_vehicle_budget===undefined?0:ru.mp_vehicle_budget;
+  const set=(k,v)=>act('rule',{key:k,value:v});
+  const num=(k,lo,hi)=>{const v=Number(U[k]);if(!(v>=lo&&v<=hi)){alert('Isi angka '+lo+'-'+hi);return null;}return v;};
+  return h('div',{},h('h4',{},'Jumlah NPC per area'),
+    h('div',{},'Anggaran sekarang: ',h('b',{},nb),h('small',{},ru.mp_npc_budget===undefined?' (bawaan game: 30)':'')),
+    [30,60,100,150,200].map(n=>b(String(n),()=>set('mp_npc_budget',n),n===nb?'on':'')),h('br'),
+    'angka lain (10-200) ',h('input',{type:'number',min:10,max:200,value:U.nbv,placeholder:String(nb),oninput:e=>{U.nbv=e.target.value;}}),
+    b('Simpan',()=>{const v=num('nbv',10,200);if(v!==null)set('mp_npc_budget',v);}),b('Bawaan','g',()=>set('mp_npc_budget','')),
+    h('p',{},h('small',{},'Ini batas NPC yang boleh aktif di sekitar satu titik (zombi, survivor, bandit, army dihitung bersama, tidak per jenis). Batas efektif = angka ini, ditambah 10 untuk tiap pemain tambahan di area itu, maksimal 3× angkanya. Angka lebih besar = lebih ramai tapi lebih berat bagi server (Codespace/Chromium). Naikkan bertahap dan pantau fps di bar atas.')),
+    h('h4',{},'Batas kendaraan'),
+    h('div',{},'Sekarang: ',h('b',{},vb||'tanpa batas')),
+    h('input',{type:'number',min:0,max:200,value:U.vbv,placeholder:String(vb),oninput:e=>{U.vbv=e.target.value;}}),
+    b('Simpan',()=>{const v=num('vbv',0,200);if(v!==null)set('mp_vehicle_budget',v);}),
+    h('p',{},h('small',{},'0 = tanpa batas. Kendaraan yang sudah ada tidak dihapus; hanya mencegah yang baru.')),
+    h('h4',{},'Munculkan NPC (seperti panel admin di game)'),
+    (()=>{const NK=[[1,'Zombie'],[3,'Fast zombie'],[9,'Army zombie'],[4,'Gunner zombie'],[6,'Screamer'],[22,'Army boss'],[23,'Fast boss'],[13,'Wolf'],[26,'Bear'],[14,'Deer'],[15,'Rabbit'],[21,'Chicken'],[27,'Pig']];
+      const ads=(S.players||[]).filter(p=>p.admin&&p.id!=='h'&&p.x!=null);
+      return h('div',{},h('select',{onchange:e=>{U.nk=e.target.value;}},NK.map(k=>h('option',{value:k[0],selected:String(k[0])===U.nk},k[1]))),' x ',
+        h('input',{type:'number',min:1,max:20,value:U.nn,oninput:e=>{U.nn=e.target.value;}}),h('br'),'di sebelah admin ',
+        h('select',{onchange:e=>{U.na=e.target.value;}},h('option',{value:''},ads.length?'pilih admin':'(tidak ada admin yang sedang hidup)'),ads.map(p=>h('option',{value:p.id,selected:p.id===U.na},p.name))),h('br'),
+        b('Munculkan',()=>{if(!U.na)return alert('Pilih admin yang sedang online dan hidup di game.');api('npc?kind='+U.nk+'&count='+encodeURIComponent(U.nn)+'&peer='+encodeURIComponent(U.na)).then(j=>{if(!j.ok)alert(j.error);else alert('Dimunculkan di sebelah admin.');});}),
+        h('small',{},' Daftar game hanya berisi zombi, boss, dan hewan. Survivor, bandit, dan army manusia tidak ada di daftar itu.'));})(),
+    h('h4',{},'Per jenis (zombi, survivor, bandit, army)'),
+    h('small',{},'Belum ada pengaturan per jenis. Game menentukan jumlah tiap jenis saat dunia dibuat, mengikuti tingkat kesulitan, dan tidak menyediakan pengaturan untuk itu.'));
 }
 function aturan(){
   const ru=S.rules||{};
