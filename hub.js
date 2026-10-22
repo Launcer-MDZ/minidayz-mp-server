@@ -9,6 +9,9 @@ const PROTO = 'np1';
 
 // Aturan dunia yang bisa diatur dari halaman admin (kunci sama dengan panel host di game).
 // type: 'b' = mati/nyala (0/1), 'n' = angka (min-max)
+// Jenis NPC yang bisa dimunculkan panel admin game (NPC_LIST di game): zombi, boss, dan hewan
+const CAR_KINDS = new Set([1, 2, 3, 4, 5]);          // UAZ, Volga, Humvee, KA, Tank
+const NPC_KINDS = new Set([1, 3, 9, 4, 6, 22, 23, 13, 26, 14, 15, 21, 27]);
 const ACT_OK = new Set(['kick', 'ban', 'banid', 'unban', 'admin', 'heal', 'god', 'tp', 'item', 'time', 'pvp', 'say', 'bunker', 'ferry', 'island', 'save',
   'accfg', 'rule', 'rules', 'kit', 'announce', 'announce_now', 'teamstyle', 'pvp_reset', 'closedmsg', 'nobuild']);
 const RULE_DEFS = [
@@ -97,6 +100,8 @@ function createHub(opts = {}) {
   function saveAdmins() { try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(ADMIN_FILE, JSON.stringify([...adminUids])); } catch (e) { log('gagal simpan admin: ' + e.message); } }
   // perintah ke host dari hub ("srv"): host menjalankannya sebagai perintah admin
   function sendAc(c, a) { if (host) send(host.ws, { t: 'msg', from: 'srv', tag: 'ac', data: JSON.stringify({ c, a }) }); }
+  // perintah yang butuh posisi admin (npc): dikirim atas nama admin yang sedang hidup di game, hasilnya muncul di sebelahnya
+  function sendAcAs(fromId, c, a) { if (host) send(host.ws, { t: 'msg', from: String(fromId), tag: 'ac', data: JSON.stringify({ c, a }) }); }
   function kickPeer(id, reason, text) {
     const p = peers.get(String(id)); if (!p) return false;
     send(p.ws, { t: 'refused', reason: reason === 'banned' ? 'banned' : 'kicked', text: String(text || '') });
@@ -325,6 +330,49 @@ load();setInterval(load,5000);
         acClearedAt = Date.now(); try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(ACCLEAR_FILE, JSON.stringify({ at: acClearedAt })); } catch (e) {}
         log('admin: log keamanan dihapus dari web'); return res.end('{"ok":true}');
       }
+      if (url.pathname === '/admin/npc') {
+        const kind = Math.round(Number(url.searchParams.get('kind'))), count = Math.max(1, Math.min(20, Math.round(Number(url.searchParams.get('count'))) || 1));
+        const peerId = String(url.searchParams.get('peer') || '');
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (!NPC_KINDS.has(kind)) return res.end('{"ok":false,"error":"jenis NPC tidak dikenal"}');
+        const ap = ((hostState && hostState.players) || []).find(x => x.id === peerId && peers.has(x.id));
+        if (!ap || !ap.admin) return res.end('{"ok":false,"error":"pilih admin yang sedang online"}');
+        if (ap.x == null) return res.end('{"ok":false,"error":"admin itu belum punya posisi (mati / baru masuk)"}');
+        log(`admin: npc #${kind} x${count} di sebelah ${ap.name}`); sendAcAs(peerId, 'npc', { kind, count });
+        return res.end('{"ok":true}');
+      }
+      if (url.pathname === '/admin/car') {
+        const kind = Math.round(Number(url.searchParams.get('kind'))), peerId = String(url.searchParams.get('peer') || '');
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (!CAR_KINDS.has(kind)) return res.end('{"ok":false,"error":"kode kendaraan harus 1-5"}');
+        const ap = ((hostState && hostState.players) || []).find(x => x.id === peerId && peers.has(x.id));
+        if (!ap || !ap.admin) return res.end('{"ok":false,"error":"pilih admin yang sedang online"}');
+        if (ap.x == null) return res.end('{"ok":false,"error":"admin itu belum punya posisi (mati / baru masuk)"}');
+        log(`admin: kendaraan #${kind} di sebelah ${ap.name}`); sendAcAs(peerId, 'car', { kind });
+        return res.end('{"ok":true}');
+      }
+      if (url.pathname === '/admin/tpx') {        // bring = pemain dibawa ke admin, goto = admin ke pemain
+        const mode = url.searchParams.get('mode'), target = String(url.searchParams.get('peer') || ''), adminId = String(url.searchParams.get('admin') || '');
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (mode !== 'bring' && mode !== 'goto') return res.end('{"ok":false,"error":"mode salah"}');
+        const ps = (hostState && hostState.players) || [];
+        const ap = ps.find(x => x.id === adminId && peers.has(x.id)), tp = ps.find(x => x.id === target && peers.has(x.id));
+        if (!ap || !ap.admin) return res.end('{"ok":false,"error":"pilih admin yang sedang online"}');
+        if (!tp) return res.end('{"ok":false,"error":"pemain tidak ada"}');
+        if (ap.x == null || tp.x == null) return res.end('{"ok":false,"error":"admin atau pemain belum punya posisi"}');
+        log(`admin: ${mode} ${tp.name} <-> ${ap.name}`); sendAcAs(adminId, mode, { peer: target });
+        return res.end('{"ok":true}');
+      }
+      if (url.pathname === '/admin/backups') return res.end(JSON.stringify({ ok: true, enabled: !!api.control, backups: api.control ? api.control.list() : [], busy: api.control ? !!api.control.busy : false, last: api.control ? api.control.last || null : null }));
+      if (url.pathname === '/admin/backup' || url.pathname === '/admin/restore') {
+        if (!api.control) return res.end('{"ok":false,"error":"fitur cadangan belum aktif (pakai start.js terbaru + backup.js)"}');
+        if (api.control.busy) return res.end('{"ok":false,"error":"sedang memproses cadangan lain"}');
+        const isRestore = url.pathname === '/admin/restore';
+        if (isRestore && url.searchParams.get('confirm') !== '1') return res.end('{"ok":false,"error":"konfirmasi diperlukan"}');
+        const job = isRestore ? api.control.restore(String(url.searchParams.get('name') || '')) : api.control.backup(String(url.searchParams.get('label') || ''), url.searchParams.get('push') !== '0');
+        Promise.resolve(job).then(r => res.end(JSON.stringify(Object.assign({ ok: true }, r)))).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 300) })));
+        return;
+      }
       if (url.pathname === '/admin/giftdel') { const i = Number(url.searchParams.get('i')); if (i >= 0 && i < gifts.length) { gifts.splice(i, 1); saveGifts(); } return res.end('{"ok":true}'); }
       if (url.pathname === '/admin/rulesdata') return res.end(JSON.stringify({ online: !!host, values: rulesNow, defs: RULE_DEFS.map(d => ({ k: d[0], label: d[1], type: d[2], min: d[3], max: d[4] })) }));
       if (url.pathname === '/admin/setrule') {
@@ -384,7 +432,8 @@ load();setInterval(load,5000);
   // buang koneksi mati (proxy Railway bisa memutus koneksi diam)
   const hb = setInterval(() => wss.clients.forEach(ws => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} }), 25000);
   server.on('close', () => clearInterval(hb));
-  return { server, wss, state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
+  const api = { server, wss, control: null, sendSave: () => sendAc('save', {}), state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
+  return api;
 }
 
 module.exports = { createHub, PROTO, pushLog };

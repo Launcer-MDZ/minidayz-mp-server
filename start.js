@@ -10,7 +10,7 @@ const env = process.env;
 const PORT = Number(env.PORT) || 7777;
 const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /data supaya dunia tersimpan
 const cfg = {
-  name: env.SERVER_NAME || 'MiniDayZ Server Indonesia',
+  name: env.SERVER_NAME || 'MiniDayZ Server',
   pw: env.SERVER_PASSWORD || '',
   max: Number(env.MAX_PLAYERS) || 10,
   pvp: env.PVP === '0' ? 0 : 1,
@@ -34,6 +34,46 @@ String(env.EVENTS || '').split(',').map(x => x.trim().toLowerCase()).filter(Bool
 if (DIFF) WANT_VARS.Difficulty = DIFF;
 
 const hub = createHub();
+
+// ---- cadangan dunia (backup.js): ekspor data game host, simpan di backups/, push ke GitHub, dan pulihkan ----
+let B = null; try { B = require('./backup'); } catch (e) { console.log('backup.js tidak ada: fitur cadangan nonaktif'); }
+let cur = null;                 // { ctx, page } game host yang sedang berjalan
+let pendingRestore = null;      // data cadangan yang akan ditulis sebelum game dimuat
+const control = B ? {
+  busy: false, last: null,
+  list: () => B.listBackups(),
+  async backup(label, push) {
+    if (!cur) throw new Error('game host belum siap');
+    control.busy = true;
+    try {
+      hub.sendSave(); await new Promise(r => setTimeout(r, 4000));          // minta game menyimpan dunia dulu
+      const data = await B.exportFromPage(cur.page);
+      if (!data.saves.length) throw new Error('belum ada dunia tersimpan di host (tunggu simpan otomatis atau mulai dunia dulu)');
+      const f = B.saveBackup(data, label); B.prune();
+      let git = { pushed: false };
+      if (push && env.BACKUP_PUSH !== '0') { try { git = await B.gitPush('cadangan dunia ' + f.name); } catch (e) { git = { pushed: false, error: e.message }; } }
+      control.last = { at: Date.now(), name: f.name, size: f.size, pushed: !!git.pushed, error: git.error || null };
+      console.log('cadangan dibuat:', f.name, (f.size / 1024).toFixed(0) + ' KB', git.pushed ? '(di-push ke GitHub)' : git.error ? '(push gagal: ' + git.error + ')' : '(tanpa push)');
+      return { name: f.name, size: f.size, pushed: !!git.pushed, gitError: git.error || null };
+    } finally { control.busy = false; }
+  },
+  async restore(name) {
+    if (!cur) throw new Error('game host belum siap');
+    const data = B.loadBackup(name);                                          // validasi dulu
+    control.busy = true;
+    try {
+      try { const d0 = await B.exportFromPage(cur.page); if (d0.saves.length) B.saveBackup(d0, 'sebelum-restore'); } catch (e) {}   // cadangan pengaman
+      pendingRestore = data; console.log('memulihkan cadangan:', name);
+      await cur.ctx.close().catch(() => {});                                  // memicu restart otomatis, lalu data ditulis sebelum game dimuat
+      return { restarting: true };
+    } finally { control.busy = false; }
+  },
+} : null;
+hub.control = control;
+if (control && env.RESTORE) { try { pendingRestore = B.loadBackup(env.RESTORE); console.log('akan memulihkan cadangan saat start:', env.RESTORE); } catch (e) { console.log('RESTORE gagal:', e.message); } }
+const everyMin = Number(env.BACKUP_EVERY_MIN) || 0;
+if (control && everyMin > 0) setInterval(() => { if (cur && !control.busy) control.backup('auto', true).catch(e => console.log('cadangan otomatis gagal:', e.message)); }, everyMin * 60000);
+
 hub.server.listen(PORT, '0.0.0.0', () => { console.log('hub siap di port', PORT); launch(); });
 
 let failures = 0;
@@ -73,11 +113,20 @@ async function launch() {
       }, WANT_VARS);
       console.log('pengaturan dunia baru:', JSON.stringify(WANT_VARS));
     }
+    if (pendingRestore && B) {
+      // tulis data cadangan ke penyimpanan game (origin yang sama) sebelum game dimuat
+      const origin = new URL(base).origin, rp = ctx.pages()[0] || await ctx.newPage();
+      await ctx.route(origin + '/__restore__', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>restore</title>' }));
+      await rp.goto(origin + '/__restore__');
+      console.log('cadangan dipulihkan:', JSON.stringify(await B.restoreToPage(rp, pendingRestore)));
+      pendingRestore = null; await ctx.unroute(origin + '/__restore__');
+    }
     const page = ctx.pages()[0] || await ctx.newPage();
+    cur = { ctx, page };
     page.on('console', m => { if (m.type() === 'error') console.log('[game]', m.text().slice(0, 200)); });
     page.on('pageerror', e => console.log('[pageerror]', String(e.message || e).slice(0, 200)));
     page.on('crash', () => { console.log('halaman crash', readMem()); ctx.close().catch(() => {}); });
-    ctx.on('close', () => restart('browser tertutup'));
+    ctx.on('close', () => { if (cur && cur.ctx === ctx) cur = null; restart('browser tertutup'); });
     await page.goto(url);
     console.log('game dedicated dibuka:', cfg.name);
     failures = 0;
