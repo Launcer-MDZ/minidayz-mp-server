@@ -22,7 +22,7 @@ const h=(t,p,...c)=>{const e=document.createElement(t);for(const k in(p||{})){co
 c.flat(9).forEach(x=>{if(x!=null&&x!==false)e.append(x.nodeType?x:String(x));});return e;};
 const b=(t,f,cls)=>h('button',{onclick:f,class:cls||''},t);
 let S=null,ITEMS=[],RD=[],LOGS=[],BK=null;
-const U={wx:null,wxLock:false,diffNow:'?',vt:'',vtAdm:'',car:'1',carm:'',carAdm:'',tpPeer:'',tpX:'',tpY:'',tpDest:'',tpAdm:'',nbC:'',nbR:'',nbP:'',bkLabel:'',annDraft:null,nk:'1',nn:'1',na:'',nbv:'',vbv:'',tab:'pemain',q:'',cat:'all',sel:null,qty:'1',st:'',cond:'100',tgt:'',hour:'12',say:''};
+const U={car:'1',carm:'',carAdm:'',tpPeer:'',tpX:'',tpY:'',tpDest:'',tpAdm:'',nbC:'',nbR:'',nbP:'',bkLabel:'',annDraft:null,nk:'1',nn:'1',na:'',nbv:'',vbv:'',tab:'pemain',q:'',cat:'all',sel:null,qty:'1',st:'',cond:'100',tgt:'',hour:'12',say:''};
 const TABS=[['pemain','Pemain'],['barang','Barang & kit'],['dunia','Dunia'],['spawn','Spawn'],['alat','Alat'],['cadangan','Cadangan'],['aturan','Aturan'],['aman','Keamanan'],['log','Log']];
 const nm=id=>{const x=ITEMS.find(i=>i[0]===id);return x?x[1]:'#'+id;};
 const ACTN={notify:'beri tahu admin',kick:'kick',ban:'ban',banip:'ban + IP','allowed (admin)':'diizinkan (admin)',logged:'dicatat'};
@@ -31,7 +31,7 @@ const bind=(id,k,type,ph)=>h('input',{id,type:type||'text',value:U[k],placeholde
 
 async function load(){
   try{S=await api('state');if(!ITEMS.length)ITEMS=(await api('items')).items||[];if(!RD.length)RD=(await api('rulesdata')).defs||[];
-    if(U.tab==='log')LOGS=(await api('logdata')).lines||[];if(U.tab==='cadangan')BK=await api('backups');if(U.tab==='dunia'){const d=await api('difficulty');U.diffNow=d.ok?d.level:'?';const w=await api('weather');U.wx=w.ok?w:null;}}catch(e){S=null;}
+    if(U.tab==='log')LOGS=(await api('logdata')).lines||[];if(U.tab==='cadangan')BK=await api('backups');}catch(e){S=null;}
   if(!typing())draw();
 }
 function draw(){
@@ -95,16 +95,6 @@ function dunia(){
     fe?[h('br'),h('b',{},'Perahu / voting '),h('small',{},'ke pulau '+fe.to+', '+fe.left+' dtk'),b('Berangkat sekarang',()=>act('ferry',{act:'now'}))]:null,
     h('br'),b('Simpan dunia sekarang',()=>act('save',{})),
     h('div',{},'pindah semua ke pulau ',h('select',{id:'isl'},[1,2,3,4,5,6,7,8,9].map(n=>h('option',{value:n},n))),b('Pindah',()=>{const n=Number(isl.value);if(confirm('Pindahkan SEMUA pemain ke pulau '+n+'?'))act('island',{n});},'r')),
-    h('h4',{},'Cuaca (percobaan)'),
-    h('div',{},'Sekarang: ',h('b',{},U.wx?(U.wx.rain?(U.wx.level===2?'badai (level 2)':'hujan (level '+U.wx.level+')'):'cerah')+(U.wx.locked?' - dikunci':''):'?')),
-    [['cerah','Cerah'],['hujan','Hujan'],['badai','Badai / salju']].map(m=>b(m[1],()=>api('weather?mode='+m[0]+'&lock='+(U.wxLock?1:0)).then(j=>{if(!j.ok)alert(j.error);load();}))),
-    b('Lepas kunci',()=>api('weather?mode=bebas').then(()=>load()),'g'),
-    h('label',{},h('input',{type:'checkbox',checked:U.wxLock,onchange:e=>{U.wxLock=e.target.checked;}}),' kunci (cegah game mengganti cuaca)'),
-    h('div',{},h('small',{},'Memakai variabel cuaca game (level 1 = hujan, level 2 = badai). Efek gambar dan suara dimulai oleh event cuaca game sendiri, jadi hasilnya bisa tidak lengkap; coba lalu laporkan. Game tidak punya cuaca panas, dan jenis tanah (hijau, kering, salju) ditentukan pulau saat dunia dibuat sehingga tidak bisa diganti di dunia berjalan.')),
-    h('h4',{},'Tingkat kesulitan (dunia yang sedang berjalan)'),
-    h('div',{},'Sekarang: ',h('b',{},U.diffNow)),
-    [['Novice','Pemula'],['Regular','Biasa'],['Veteran','Veteran'],['Legend','Legendaris']].map(d=>b(d[1],()=>{if(confirm('Ubah kesulitan dunia ini ke '+d[1]+'? Berlaku langsung untuk semua pemain.'))api('difficulty?level='+d[0]).then(j=>{alert(j.ok?'Diubah ke '+j.level:j.error);load();});},U.diffNow===d[0]?'on':'')),
-    h('div',{},h('small',{},'Yang berubah langsung: dingin, damage zombi dan serigala, pemulihan, dan pengecekan lain yang bergantung kesulitan. Yang TIDAK berubah: isi dunia yang sudah dibuat (jumlah zombi per pangkalan, desa, flag spawn), serta fitur khusus Legendaris seperti pembatasan peta.')),
     h('h4',{},'Chat terakhir'),(S.chat||[]).length?h('div',{},S.chat.slice(-15).map(c=>h('div',{},h('b',{},c[0]+': '),c[1]))):h('small',{},'Belum ada.'));
 }
 function spawn(){
@@ -161,10 +151,6 @@ function alat(){
     'di sebelah admin ',adSel('carAdm'),b('Munculkan',()=>{if(!U.carAdm)return alert('Pilih admin yang sedang online dan hidup di game.');
       api('car?kind='+encodeURIComponent(U.carm||U.car)+'&peer='+encodeURIComponent(U.carAdm)).then(j=>alert(j.ok?'Kendaraan dimunculkan di sebelah admin.':j.error));}),
     h('small',{},' Game hanya mengenal kode 1-5 (UAZ, Volga, Humvee, KA, Tank).'),
-    h('div',{style:'margin-top:8px'},'Kode tipe manual ',h('input',{value:U.vt,placeholder:'t1700',style:'width:100px',oninput:e=>{U.vt=e.target.value.trim();}}),' di sebelah admin ',adSel('vtAdm'),
-      b('Cari & teleport',()=>{if(!/^t\d{1,5}$/i.test(U.vt))return alert('Isi kode seperti t1700.');if(!U.vtAdm)return alert('Pilih admin yang sedang online dan hidup di game.');
-        api('vehicle?code='+encodeURIComponent(U.vt)+'&peer='+encodeURIComponent(U.vtAdm)).then(j=>alert(j.ok?'Dipindahkan dari ('+j.from.x+', '+j.from.y+') ke sebelah admin.':j.error));}),
-      h('small',{},' Memindahkan kendaraan bertipe itu yang sudah ada di dunia (yang terdekat dengan admin). Tidak membuat kendaraan baru, dan tipe non-kendaraan ditolak.')),
     h('h4',{},'Teleport'),
     plSel('tpPeer','pilih pemain'),h('br'),
     'ke X ',h('input',{type:'number',style:'width:90px',value:U.tpX,oninput:e=>{U.tpX=e.target.value;}}),' Y ',h('input',{type:'number',style:'width:90px',value:U.tpY,oninput:e=>{U.tpY=e.target.value;}}),
