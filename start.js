@@ -14,7 +14,7 @@ const cfg = {
   pw: env.SERVER_PASSWORD || '',
   max: Number(env.MAX_PLAYERS) || 20,
   pvp: env.PVP === '1' ? 0 : 1,
-  save: Math.max(1, Number(env.SAVE_MINUTES) || 10),   // jeda minimal simpan otomatis (menit); tiap simpan membuat game membeku sesaat
+  save: Number(env.SAVE_MINUTES) || 10,
   region: env.REGION || 'Indonesia/Asia',
 };
 
@@ -33,122 +33,7 @@ const WANT_VARS = {};
 String(env.EVENTS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean).forEach(n => { if (EVT[n]) WANT_VARS[EVT[n]] = 1; else console.log('EVENTS tidak dikenal:', n, '(pilih: natal, halloween)'); });
 if (DIFF) WANT_VARS.Difficulty = DIFF;
 
-// DIFF_FN_START  (dijalankan di dalam halaman game host)
-// Mengisi variabel game yang diatur event "kesulitan" (dingin, damage zombi/serigala, pemulihan, dll.) pada dunia yang SUDAH berjalan.
-// Tidak mengubah isi dunia yang sudah dibuat (jumlah zombi per pangkalan, desa, flag spawn).
-const DIFF_PROFILES = {
-  Novice:  { Difficulty: 'Novice',  Night_cold: 1, Rain_cold: 1, Day_cold: 6, Starving_current: 'Novice_starving',  Thirsty_current: 'Novice_thirsty',  Weathercold_current: 'Novice_weathercold',  Regeneration_current: 'Novice_regeneration',  Zed_dmg: 6,  Zed_fast_dmg: 6, Zed_army_dmg: 8,  Wolf_dmg: 8,  Difficulty_damage_reducer: 8 },
-  Regular: { Difficulty: 'Regular', Night_cold: 2, Rain_cold: 2, Day_cold: 7, Starving_current: 'Regular_starving', Thirsty_current: 'Regular_thirsty', Weathercold_current: 'Regular_weathercold', Regeneration_current: 'Regular_regeneration', Zed_dmg: 9,  Zed_fast_dmg: 7, Zed_army_dmg: 13, Wolf_dmg: 8,  Difficulty_damage_reducer: 5 },
-  Veteran: { Difficulty: 'Veteran', Night_cold: 3, Rain_cold: 3, Day_cold: 8, Starving_current: 'Veteran_starving', Thirsty_current: 'Veteran_thirsty', Weathercold_current: 'Veteran_weathercold', Regeneration_current: 'Veteran_regeneration', Zed_dmg: 10, Zed_fast_dmg: 8, Zed_army_dmg: 15, Wolf_dmg: 10, Difficulty_damage_reducer: 3 },
-  Legend:  { Difficulty: 'Legend',  Night_cold: 3, Rain_cold: 3, Day_cold: 9, Starving_current: 'Veteran_starving', Thirsty_current: 'Veteran_thirsty', Weathercold_current: 'Veteran_weathercold', Regeneration_current: 'Veteran_regeneration', Zed_dmg: 10, Zed_fast_dmg: 8, Zed_army_dmg: 15, Wolf_dmg: 10, Difficulty_damage_reducer: 3 },
-};
-function pageDifficulty(a) {
-  const rt = window.cr_getC2Runtime && window.cr_getC2Runtime();
-  if (!rt || !rt.tD) return { ok: false, error: 'game belum siap' };
-  const g = n => rt.tD.find(x => x && x.name === n);
-  if (!a.vars) { const d = g('Difficulty'); return { ok: !!d, level: d ? String(d.data) : null }; }
-  let set = 0, missing = [];
-  for (const k in a.vars) { const v = g(k); if (v) { v.data = a.vars[k]; set++; } else missing.push(k); }
-  return { ok: set > 0, set, missing, level: String(g('Difficulty') ? g('Difficulty').data : '') };
-}
-// DIFF_FN_END
-
-// WEATHER_FN_START  (dijalankan di dalam halaman game host)
-// Mengisi variabel cuaca game: Rain (0/1) dan rains_level (1 = hujan, 2 = badai/blizzard). Percobaan: efek visual dan suara
-// dimulai oleh event cuaca game sendiri, jadi hasilnya perlu diuji. lock = diisi ulang tiap detik agar tidak diganti game.
-function pageWeather(a) {
-  const rt = window.cr_getC2Runtime && window.cr_getC2Runtime();
-  if (!rt || !rt.tD) return { ok: false, error: 'game belum siap' };
-  const g = n => rt.tD.find(x => x && x.name === n);
-  const apply = v => { for (const k in v) { const x = g(k); if (x) x.data = v[k]; } };
-  if (a.vars) { apply(a.vars); window.__mdzWeather = a.lock ? a.vars : null;
-    if (a.lock && !window.__mdzWeatherT) window.__mdzWeatherT = setInterval(() => { const w = window.__mdzWeather; if (w) apply(w); }, 1000); }
-  else if (a.free) window.__mdzWeather = null;
-  const r = g('Rain'), l = g('rains_level');
-  if (!r || !l) return { ok: false, error: 'variabel cuaca tidak ditemukan' };
-  return { ok: true, rain: Number(r.data), level: Number(l.data), locked: !!window.__mdzWeather };
-}
-// WEATHER_FN_END
-
-// SAVE_FN_START  (dijalankan di dalam halaman game host)
-// Membungkus dedSave() milik game: simpan otomatis hanya bila sudah lewat jeda minimal DAN ada pemain online.
-// Simpan paksa (tombol admin, cadangan, pemain terakhir keluar) lewat window.__mdzForceSave = true.
-function pageThrottleSave(a) {
-  const rt = window.cr_getC2Runtime && window.cr_getC2Runtime();
-  if (!rt || !rt.S) return false;
-  if (window.__mdzSaveHook) return true;
-  window.__mdzOnline = a.online;
-  for (const t of rt.S) {
-    if (!t || !t.q) continue;
-    for (const inst of t.q) {
-      if (inst && typeof inst.dedSave === 'function') {
-        const orig = inst.dedSave; let last = Date.now();
-        inst.dedSave = function () {
-          const now = Date.now(), forced = !!window.__mdzForceSave;
-          if (!forced && (now - last < a.minMs || !(window.__mdzOnline > 0))) return false;      // lewati: hemat lag
-          window.__mdzForceSave = false; last = now;
-          return orig.apply(this, arguments);
-        };
-        window.__mdzSaveHook = true; return true;
-      }
-    }
-  }
-  return false;
-}
-// SAVE_FN_END
-
-// VEHICLE_FN_START  (dijalankan di dalam halaman game host; pola sama dengan moveMe / trunkPin milik game)
-function pageFindTeleportVehicle(a) {
-  const rt = window.cr_getC2Runtime && window.cr_getC2Runtime();
-  if (!rt || !rt.S) return { ok: false, error: 'game belum siap' };
-  const t = rt.S.filter(o => o && o.name === a.type)[0];
-  if (!t) return { ok: false, error: 'tipe ' + a.type + ' tidak ada di game' };
-  const fam = rt.S[1067];                                        // keluarga semua kendaraan (vehicleType() di game)
-  if (!(fam && fam.fg && fam.fg.indexOf(t) >= 0)) return { ok: false, error: a.type + ' bukan tipe kendaraan, ditolak' };
-  const list = (t.q || []).filter(i => i && isFinite(i.x) && isFinite(i.y));
-  if (!list.length) return { ok: false, error: 'belum ada ' + a.type + ' di area yang sedang dimuat game' };
-  list.sort((p, q) => Math.hypot(p.x - a.x, p.y - a.y) - Math.hypot(q.x - a.x, q.y - a.y));
-  const m = list[0], from = { x: Math.round(m.x), y: Math.round(m.y) };
-  m.x = a.x; m.y = a.y; if (typeof m.P === 'function') m.P();
-  return { ok: true, from, found: list.length };
-}
-// VEHICLE_FN_END
-
 const hub = createHub();
-const onlineNow = () => hub.state().peers;
-hub.onPlayers = (n) => {                       // dipanggil hub tiap pemain masuk / keluar
-  if (!cur) return;
-  cur.page.evaluate((n) => { window.__mdzOnline = n; }, n).catch(() => {});
-  if (n === 0 && hadPlayers) { forceSaveNow().then(() => hub.sendSave()).catch(() => {}); }   // pemain terakhir keluar: simpan sekali
-  if (n > 0) hadPlayers = true;
-};
-let hadPlayers = false;
-const forceSaveNow = async () => { if (cur) await cur.page.evaluate(() => { window.__mdzForceSave = true; }).catch(() => {}); };
-hub.forceSave = forceSaveNow;
-hub.difficultyFn = async (level) => {
-  if (!cur) throw new Error('game host belum siap');
-  if (level === null) { const r = await cur.page.evaluate(pageDifficulty, {}); if (!r.ok) throw new Error(r.error || 'variabel Difficulty tidak ditemukan'); return { level: r.level }; }
-  const name = DIFF_MAP[String(level).trim().toLowerCase()];
-  if (!name) throw new Error('tingkat tidak dikenal: ' + level);
-  const r = await cur.page.evaluate(pageDifficulty, { vars: DIFF_PROFILES[name] });
-  if (!r.ok) throw new Error(r.error || 'tidak ada variabel yang bisa diubah');
-  console.log('kesulitan diubah ke', name, '(' + r.set + ' variabel' + (r.missing && r.missing.length ? ', tidak ditemukan: ' + r.missing.join(',') : '') + ')');
-  return { level: r.level, set: r.set, missing: r.missing };
-};
-hub.weatherFn = async (vars, lock, free) => {
-  if (!cur) throw new Error('game host belum siap');
-  const r = await cur.page.evaluate(pageWeather, { vars, lock, free });
-  if (!r.ok) throw new Error(r.error);
-  if (vars) console.log('cuaca diubah:', JSON.stringify(vars), lock ? '(dikunci)' : '');
-  return r;
-};
-hub.vehicleFn = async (code, x, y) => {
-  if (!cur) throw new Error('game host belum siap');
-  const r = await cur.page.evaluate(pageFindTeleportVehicle, { type: code, x, y });
-  if (!r.ok) throw new Error(r.error);
-  console.log(`kendaraan ${code} dipindahkan dari (${r.from.x}, ${r.from.y}) ke (${x}, ${y})`);
-  return r;
-};
 
 // ---- cadangan dunia (backup.js): ekspor data game host, simpan di backups/, push ke GitHub, dan pulihkan ----
 let B = null; try { B = require('./backup'); } catch (e) { console.log('backup.js tidak ada: fitur cadangan nonaktif'); }
@@ -161,7 +46,7 @@ const control = B ? {
     if (!cur) throw new Error('game host belum siap');
     control.busy = true;
     try {
-      await forceSaveNow(); hub.sendSave(); await new Promise(r => setTimeout(r, 4000));          // minta game menyimpan dunia dulu
+      hub.sendSave(); await new Promise(r => setTimeout(r, 4000));          // minta game menyimpan dunia dulu
       const data = await B.exportFromPage(cur.page);
       if (!data.saves.length) throw new Error('belum ada dunia tersimpan di host (tunggu simpan otomatis atau mulai dunia dulu)');
       const f = B.saveBackup(data, label); B.prune();
@@ -243,11 +128,6 @@ async function launch() {
     page.on('crash', () => { console.log('halaman crash', readMem()); ctx.close().catch(() => {}); });
     ctx.on('close', () => { if (cur && cur.ctx === ctx) cur = null; restart('browser tertutup'); });
     await page.goto(url);
-    let tries = 0;
-    const hookT = setInterval(async () => {
-      if (++tries > 120 || !cur || cur.page !== page) return clearInterval(hookT);
-      try { if (await page.evaluate(pageThrottleSave, { minMs: cfg.save * 60000, online: onlineNow() })) { clearInterval(hookT); console.log('simpan otomatis dibatasi: minimal ' + cfg.save + ' menit, hanya saat ada pemain'); } } catch (e) {}
-    }, 1000);
     console.log('game dedicated dibuka:', cfg.name);
     failures = 0;
   } catch (e) { console.error('gagal membuka game:', e.message); restart('error'); }

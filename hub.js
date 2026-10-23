@@ -205,7 +205,6 @@ load();setInterval(load,5000);
     const ev = { t: 'joined', id, name: p.name, uid: p.uid, ip };
     everyone().forEach(x => { if (x.ws !== ws) send(x.ws, ev); });
     log(`+ ${p.name} (${id}) uid=${p.uid || '-'} ${ip}  [${peers.size}/${room.max}]`);
-    if (api.onPlayers) api.onPlayers(peers.size);
     if (p.uid && adminUids.has(p.uid)) setTimeout(() => { if (peers.has(id)) sendAc('admin', { peer: id, on: true }); }, 1500);
   }
 
@@ -276,7 +275,6 @@ load();setInterval(load,5000);
     peers.delete(me.id);
     everyone().forEach(x => send(x.ws, { t: 'left', id: me.id }));
     log(`- ${me.name} (${me.id})  [${peers.size}]`);
-    if (api.onPlayers) api.onPlayers(peers.size);
     pumpQueue();
   }
 
@@ -307,9 +305,7 @@ load();setInterval(load,5000);
         if (!host) return res.end('{"ok":false,"error":"host offline"}');
         if (!a || typeof a !== 'object' || Array.isArray(a) || JSON.stringify(a).length > 4000) return res.end('{"ok":false,"error":"argumen salah"}');
         if (c === 'admin') return res.end(JSON.stringify(adminDo('admin', a.peer, !!a.on)));
-        log(`admin: ${c} ${JSON.stringify(a).slice(0, 120)}`);
-        if (c === 'save' && api.forceSave) { Promise.resolve(api.forceSave()).catch(() => {}).then(() => { sendAc(c, a); res.end('{"ok":true}'); }); return; }
-        sendAc(c, a); return res.end('{"ok":true}');
+        log(`admin: ${c} ${JSON.stringify(a).slice(0, 120)}`); sendAc(c, a); return res.end('{"ok":true}');
       }
       if (url.pathname === '/admin/give') {
         if (!host) return res.end('{"ok":false,"error":"host offline"}');
@@ -354,38 +350,6 @@ load();setInterval(load,5000);
         if (ap.x == null) return res.end('{"ok":false,"error":"admin itu belum punya posisi (mati / baru masuk)"}');
         log(`admin: kendaraan #${kind} di sebelah ${ap.name}`); sendAcAs(peerId, 'car', { kind });
         return res.end('{"ok":true}');
-      }
-      if (url.pathname === '/admin/weather') {      // tanpa mode = baca; cerah / hujan / badai = isi variabel; bebas = lepas kunci
-        if (!host) return res.end('{"ok":false,"error":"host offline"}');
-        if (!api.weatherFn) return res.end('{"ok":false,"error":"fitur ini butuh start.js terbaru"}');
-        const mode = url.searchParams.get('mode'), lock = url.searchParams.get('lock') === '1';
-        const W = { cerah: { Rain: 0, rains_level: 0 }, hujan: { Rain: 1, rains_level: 1 }, badai: { Rain: 1, rains_level: 2 } };
-        if (mode && mode !== 'bebas' && !W[mode]) return res.end('{"ok":false,"error":"mode cuaca tidak dikenal"}');
-        if (mode) log(`admin: cuaca -> ${mode}${lock ? ' (dikunci)' : ''}`);
-        Promise.resolve(api.weatherFn(mode && mode !== 'bebas' ? W[mode] : null, lock, mode === 'bebas')).then(r => res.end(JSON.stringify(Object.assign({ ok: true }, r)))).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200) })));
-        return;
-      }
-      if (url.pathname === '/admin/difficulty') {   // tanpa level = baca; dengan level = ubah pada dunia yang berjalan
-        if (!host) return res.end('{"ok":false,"error":"host offline"}');
-        if (!api.difficultyFn) return res.end('{"ok":false,"error":"fitur ini butuh start.js terbaru"}');
-        const lv = url.searchParams.get('level');
-        Promise.resolve(api.difficultyFn(lv ? String(lv).slice(0, 20) : null)).then(r => {
-          if (lv) { log(`admin: kesulitan -> ${r.level}`); sendAc('say', { text: 'Tingkat kesulitan diubah ke ' + r.level }); }
-          res.end(JSON.stringify(Object.assign({ ok: true }, r)));
-        }).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200) })));
-        return;
-      }
-      if (url.pathname === '/admin/vehicle') {     // cari kendaraan bertipe tNNN yang sudah ada, pindahkan ke sebelah admin
-        const code = String(url.searchParams.get('code') || '').trim().toLowerCase(), peerId = String(url.searchParams.get('peer') || '');
-        if (!host) return res.end('{"ok":false,"error":"host offline"}');
-        if (!/^t\d{1,5}$/.test(code)) return res.end('{"ok":false,"error":"kode harus berbentuk t diikuti angka, misalnya t1700"}');
-        if (!api.vehicleFn) return res.end('{"ok":false,"error":"fitur ini butuh start.js terbaru"}');
-        const ap = ((hostState && hostState.players) || []).find(x => x.id === peerId && peers.has(x.id));
-        if (!ap || !ap.admin) return res.end('{"ok":false,"error":"pilih admin yang sedang online"}');
-        if (ap.x == null) return res.end('{"ok":false,"error":"admin itu belum punya posisi (mati / baru masuk)"}');
-        log(`admin: kendaraan ${code} dipindahkan ke sebelah ${ap.name}`);
-        Promise.resolve(api.vehicleFn(code, Math.round(ap.x + 150), Math.round(ap.y))).then(r => res.end(JSON.stringify(Object.assign({ ok: true }, r)))).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200) })));
-        return;
       }
       if (url.pathname === '/admin/tpx') {        // bring = pemain dibawa ke admin, goto = admin ke pemain
         const mode = url.searchParams.get('mode'), target = String(url.searchParams.get('peer') || ''), adminId = String(url.searchParams.get('admin') || '');
@@ -468,7 +432,7 @@ load();setInterval(load,5000);
   // buang koneksi mati (proxy Railway bisa memutus koneksi diam)
   const hb = setInterval(() => wss.clients.forEach(ws => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} }), 25000);
   server.on('close', () => clearInterval(hb));
-  const api = { server, wss, control: null, weatherFn: null, vehicleFn: null, difficultyFn: null, onPlayers: null, forceSave: null, sendSave: () => sendAc('save', {}), state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
+  const api = { server, wss, control: null, sendSave: () => sendAc('save', {}), state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
   return api;
 }
 
