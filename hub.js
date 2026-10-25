@@ -67,6 +67,7 @@ function createHub(opts = {}) {
   const queue = [];                 // { ws, hello, ip }
   let seq = 1;
   let rulesNow = {};               // aturan dunia terakhir yang diumumkan host (tag 'ru')
+  let rmeta = {};                  // 'meta' dari host: lvl, rows, time, region, host (dipakai roomInfo)
   let hostState = null, hostStateAt = 0, itemsLive = null;   // status host yang dikirim tiap 2 detik ({t:'state'})
   let gifts = [];                                            // antrean hadiah: diberikan saat pemain muncul lagi / respawn
 
@@ -188,6 +189,15 @@ load();setInterval(load,5000);
   const everyone = () => [host, ...peers.values()].filter(Boolean);
   const playerList = () => [...peers.values()].map(p => ({ id: p.id, name: p.name, uid: p.uid, ip: p.ip }));
 
+  // ---- sama dengan hub resmi (hub.cjs): info ruang dan daftar pemain yang dikirim ke game ----
+  function roomInfo() {
+    const m = rmeta || {};
+    return { id: room.id, name: room.name, max: room.ded ? room.max - 1 : room.max, pvp: room.pvp, locked: room.locked,
+      players: room.ded ? peers.size : 1 + peers.size, since: room.at, host: m.host || (host && host.name) || '',
+      lvl: m.lvl === undefined ? null : m.lvl, rows: m.rows || 0, time: m.time === undefined ? null : m.time, region: m.region || room.region || '',
+      entry: room.entry || 0, queue: queue.length, ded: !!room.ded, itemAck: room.itemAck ? 1 : 0, secureRelay: room.secureRelay ? 1 : 0, gv: room.gv || '' };
+  }
+  function playersOf() { return [{ id: 'h', name: host ? host.name : '' }].concat([...peers.values()].map(p => ({ id: p.id, name: p.name }))); }
   function uniqueName(name) {
     name = String(name || 'Survivor').slice(0, 24) || 'Survivor';
     const taken = new Set([...peers.values()].map(p => p.name.toLowerCase()));
@@ -201,15 +211,16 @@ load();setInterval(load,5000);
     const id = 'p' + (seq++);
     const p = { ws, id, name: uniqueName(h.name), uid: String(h.uid || ''), ip };
     ws.mdz = p; peers.set(id, p);
-    send(ws, { t: 'welcome', id, host: false, room, players: playerList().filter(x => x.id !== id), name: p.name, now: Date.now() });
-    const ev = { t: 'joined', id, name: p.name, uid: p.uid, ip };
-    everyone().forEach(x => { if (x.ws !== ws) send(x.ws, ev); });
+    send(ws, { t: 'welcome', id, host: false, room: roomInfo(), players: playersOf(), name: p.name, now: Date.now() });
+    // host menerima UID dan alamat pemain (ban, panel admin); pemain lain hanya nama (seperti hub resmi)
+    everyone().forEach(x => { if (x.ws !== ws) send(x.ws, x === host ? { t: 'joined', id, name: p.name, uid: p.uid, ip } : { t: 'joined', id, name: p.name }); });
     log(`+ ${p.name} (${id}) uid=${p.uid || '-'} ${ip}  [${peers.size}/${room.max}]`);
+    if (api.onPlayers) api.onPlayers(peers.size);
     if (p.uid && adminUids.has(p.uid)) setTimeout(() => { if (peers.has(id)) sendAc('admin', { peer: id, on: true }); }, 1500);
   }
 
   function pumpQueue() {
-    while (queue.length && host && peers.size < room.max) { const q = queue.shift(); if (q.ws.readyState === 1) admit(q.ws, q.hello, q.ip); }
+    while (queue.length && host && 1 + peers.size < room.max) { const q = queue.shift(); if (q.ws.readyState === 1) admit(q.ws, q.hello, q.ip); }
     queue.forEach((q, i) => send(q.ws, { t: 'queue', pos: i + 1, of: queue.length }));
   }
 
@@ -221,27 +232,55 @@ load();setInterval(load,5000);
       if (host) return refuse(ws, 'host_exists');
       const i = h.info || {};
       password = String(h.pw || '');
-      room = { id: 'main', name: String(i.name || 'MiniDayZ server'), max: Math.max(2, Number(i.max) || 10), pvp: !!i.pvp, locked: !!password,
-        lan: !!i.lan, entry: i.entry, region: i.region, ded: !!i.ded, gv: h.gv || '' };
-      host = { ws, id: 'h', name: String(h.name || 'Server'), uid: String(h.uid || ''), info: i };
+      room = { id: 'r1', name: String(i.name || 'MiniDayZ server').slice(0, 90), max: Math.max(2, Math.min(120, Number(i.max) || 10)), pvp: !!i.pvp, locked: !!password,
+        lan: !!i.lan, entry: Math.max(0, Math.min(120, Number(i.entry) || 0)), region: String(i.region || '').slice(0, 40), ded: !!i.ded,
+        itemAck: !!i.itemAck, secureRelay: !!i.secureRelay, gv: String(h.gv || '').slice(0, 24), at: Date.now() };
+      host = { ws, id: 'h', name: String(h.name || 'Server').slice(0, 24), uid: String(h.uid || ''), info: i };
+      rmeta = { region: room.region };
       ws.mdz = host; ws.mdzHost = true;
-      send(ws, { t: 'welcome', id: 'h', host: true, room, players: [], now: Date.now() });
+      send(ws, { t: 'welcome', id: 'h', host: true, room: roomInfo(), players: playersOf(), now: Date.now() });
       log(`HOST aktif: "${room.name}" max=${room.max} pvp=${room.pvp} locked=${room.locked}`);
       return pumpQueue();
     }
     // klien
     if (!host) return refuse(ws, 'no_host');
+    if (String(h.gv || '') !== String(room.gv || '')) return refuse(ws, 'version', 'server ' + (room.gv || 'older') + ', this game ' + (h.gv || 'older'));
     if (room.locked && String(h.pw || '') !== password) return refuse(ws, 'password');
-    if (peers.size >= room.max) { queue.push({ ws, hello: h, ip }); ws.queued = true; return pumpQueue(); }
+    if (1 + peers.size >= room.max) {                                  // host selalu memakai satu slot (seperti hub resmi)
+      if (queue.length >= 50) return refuse(ws, 'full');
+      queue.push({ ws, hello: h, ip }); ws.queued = true; return pumpQueue();
+    }
     admit(ws, h, ip);
   }
 
+  // pose pemain ('st'): pemain dalam jarak 2200 unit menerima tiap pose; yang lebih jauh hanya tiap 1 detik atau saat penampilannya berubah
+  function stateFor(source, target, data, at) {
+    if (target === host || !source.xy || !target.xy || Math.hypot(source.xy[0] - target.xy[0], source.xy[1] - target.xy[1]) <= 2200) return true;
+    const look = String(data).split('|').slice(2).join('|'), cache = target.farState || (target.farState = {}), last = cache[source.id];
+    if (!last || at - last[0] >= 1000 || last[1] !== look) { cache[source.id] = [at, look]; return true; }
+    return false;
+  }
+  const behind = x => (x.ws.bufferedAmount || 0) > 64 * 1024;
+  const flushT = setInterval(() => everyone().forEach(x => { const p = x && x.stPend; if (!p || behind(x)) return; x.stPend = null; for (const k in p) { if (x.ws.readyState === 1) x.ws.send(p[k]); } }), 100);
   function refuse(ws, reason, text) { send(ws, { t: 'refused', reason, text }); setTimeout(() => { try { ws.close(); } catch (e) {} }, 50); }
 
   function onMessage(ws, m) {
     const me = ws.mdz; if (!me) return;
+    // perlindungan banjir: pemain yang mengirim lebih dari 900 pesan atau 6 MB dalam 3 detik diputus (host tidak dibatasi)
+    if (!ws.mdzHost && !ws.flooded) {
+      const t = Date.now(); if (!ws.fw || t - ws.fw > 3000) { ws.fw = t; ws.fm = 0; ws.fb = 0; }
+      ws.fm++; ws.fb += JSON.stringify(m).length;
+      if (ws.fm > 900 || ws.fb > 6 * 1024 * 1024) { ws.flooded = true; log(`flood ${me.id}: ${ws.fm} pesan, ${ws.fb} byte / 3 dtk`); refuse(ws, 'flood'); return; }
+    }
+    if (ws.flooded) return;
     if (m.t === 'ping') return send(ws, { t: 'pong', ts: m.ts });
     if (m.t === 'kick' && ws.mdzHost) { kickPeer(m.id, m.reason, m.text); return; }
+    if (m.t === 'meta' && ws.mdzHost) {
+      const d = m.data || {};
+      rmeta = { lvl: d.lvl === null || d.lvl === undefined ? undefined : Number(d.lvl), rows: Number(d.rows) || 0, time: d.time === null || d.time === undefined ? undefined : Number(d.time),
+        region: String(d.region || '').slice(0, 40), host: String(d.host || '').slice(0, 24) };
+      return;
+    }
     if (ws.mdzHost && (m.t === 'state' || m.t === 'meta' || m.t === 'icons')) {
       if (m.t === 'state' && m.data && typeof m.data === 'object') {
         hostState = m.data; hostStateAt = Date.now();
@@ -253,11 +292,20 @@ load();setInterval(load,5000);
     }
     if (m.t === 'msg') {
       if (ws.mdzHost && m.tag === 'ru') { try { const o = JSON.parse(String(m.data)); if (o && typeof o === 'object') rulesNow = o; } catch (e) {} }
-      const out = { t: 'msg', from: me.id, tag: m.tag, data: m.data };
-      const to = m.to;
-      if (to === 'all') everyone().forEach(x => { if (x.ws !== ws) send(x.ws, out); });
+      const out = { t: 'msg', from: me.id, tag: String(m.tag), data: m.data };
+      const to = String(m.to || (ws.mdzHost ? 'all' : 'host'));          // tanpa 'to': host -> semua, pemain -> host (seperti hub resmi)
+      if (out.tag === 'st') { const a = String(m.data).split('|'), x = Number(a[0]), y = Number(a[1]); if (a.length >= 6 && isFinite(x) && isFinite(y)) me.xy = [x, y]; }
+      if (to === 'all') {
+        const wire = JSON.stringify(out), at = Date.now();
+        everyone().forEach(x => {
+          if (x.ws === ws || x.ws.readyState !== 1) return;
+          if (out.tag === 'st' && !stateFor(me, x, m.data, at)) return;                          // pemain jauh: pose tiap 1 detik saja
+          if (out.tag === 'st' && (x.stPend || behind(x))) { (x.stPend || (x.stPend = {}))[me.id] = wire; }  // koneksi lambat: simpan pose terbaru saja
+          else x.ws.send(wire);
+        });
+      }
       else if (to === 'host' || to === 'h') { if (host && host.ws !== ws) send(host.ws, out); }
-      else { const p = peers.get(String(to)); if (p) send(p.ws, out); }
+      else { const p = peers.get(to); if (p) send(p.ws, out); }
       return;
     }
     // pesan lain dari host (state panel admin, dll.) belum dipakai: diabaikan
@@ -275,6 +323,7 @@ load();setInterval(load,5000);
     peers.delete(me.id);
     everyone().forEach(x => send(x.ws, { t: 'left', id: me.id }));
     log(`- ${me.name} (${me.id})  [${peers.size}]`);
+    if (api.onPlayers) api.onPlayers(peers.size);
     pumpQueue();
   }
 
@@ -305,7 +354,9 @@ load();setInterval(load,5000);
         if (!host) return res.end('{"ok":false,"error":"host offline"}');
         if (!a || typeof a !== 'object' || Array.isArray(a) || JSON.stringify(a).length > 4000) return res.end('{"ok":false,"error":"argumen salah"}');
         if (c === 'admin') return res.end(JSON.stringify(adminDo('admin', a.peer, !!a.on)));
-        log(`admin: ${c} ${JSON.stringify(a).slice(0, 120)}`); sendAc(c, a); return res.end('{"ok":true}');
+        log(`admin: ${c} ${JSON.stringify(a).slice(0, 120)}`);
+        if (c === 'save' && api.forceSave) { Promise.resolve(api.forceSave()).catch(() => {}).then(() => { sendAc(c, a); res.end('{"ok":true}'); }); return; }
+        sendAc(c, a); return res.end('{"ok":true}');
       }
       if (url.pathname === '/admin/give') {
         if (!host) return res.end('{"ok":false,"error":"host offline"}');
@@ -350,6 +401,38 @@ load();setInterval(load,5000);
         if (ap.x == null) return res.end('{"ok":false,"error":"admin itu belum punya posisi (mati / baru masuk)"}');
         log(`admin: kendaraan #${kind} di sebelah ${ap.name}`); sendAcAs(peerId, 'car', { kind });
         return res.end('{"ok":true}');
+      }
+      if (url.pathname === '/admin/weather') {      // tanpa mode = baca; cerah / hujan / badai = isi variabel; bebas = lepas kunci
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (!api.weatherFn) return res.end('{"ok":false,"error":"fitur ini butuh start.js terbaru"}');
+        const mode = url.searchParams.get('mode'), lock = url.searchParams.get('lock') === '1';
+        const W = { cerah: { Rain: 0, rains_level: 0 }, hujan: { Rain: 1, rains_level: 1 }, badai: { Rain: 1, rains_level: 2 } };
+        if (mode && mode !== 'bebas' && !W[mode]) return res.end('{"ok":false,"error":"mode cuaca tidak dikenal"}');
+        if (mode) log(`admin: cuaca -> ${mode}${lock ? ' (dikunci)' : ''}`);
+        Promise.resolve(api.weatherFn(mode && mode !== 'bebas' ? W[mode] : null, lock, mode === 'bebas')).then(r => res.end(JSON.stringify(Object.assign({ ok: true }, r)))).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200) })));
+        return;
+      }
+      if (url.pathname === '/admin/difficulty') {   // tanpa level = baca; dengan level = ubah pada dunia yang berjalan
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (!api.difficultyFn) return res.end('{"ok":false,"error":"fitur ini butuh start.js terbaru"}');
+        const lv = url.searchParams.get('level');
+        Promise.resolve(api.difficultyFn(lv ? String(lv).slice(0, 20) : null)).then(r => {
+          if (lv) { log(`admin: kesulitan -> ${r.level}`); sendAc('say', { text: 'Tingkat kesulitan diubah ke ' + r.level }); }
+          res.end(JSON.stringify(Object.assign({ ok: true }, r)));
+        }).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200) })));
+        return;
+      }
+      if (url.pathname === '/admin/vehicle') {     // cari kendaraan bertipe tNNN yang sudah ada, pindahkan ke sebelah admin
+        const code = String(url.searchParams.get('code') || '').trim().toLowerCase(), peerId = String(url.searchParams.get('peer') || '');
+        if (!host) return res.end('{"ok":false,"error":"host offline"}');
+        if (!/^t\d{1,5}$/.test(code)) return res.end('{"ok":false,"error":"kode harus berbentuk t diikuti angka, misalnya t1700"}');
+        if (!api.vehicleFn) return res.end('{"ok":false,"error":"fitur ini butuh start.js terbaru"}');
+        const ap = ((hostState && hostState.players) || []).find(x => x.id === peerId && peers.has(x.id));
+        if (!ap || !ap.admin) return res.end('{"ok":false,"error":"pilih admin yang sedang online"}');
+        if (ap.x == null) return res.end('{"ok":false,"error":"admin itu belum punya posisi (mati / baru masuk)"}');
+        log(`admin: kendaraan ${code} dipindahkan ke sebelah ${ap.name}`);
+        Promise.resolve(api.vehicleFn(code, Math.round(ap.x + 150), Math.round(ap.y))).then(r => res.end(JSON.stringify(Object.assign({ ok: true }, r)))).catch(e => res.end(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200) })));
+        return;
       }
       if (url.pathname === '/admin/tpx') {        // bring = pemain dibawa ke admin, goto = admin ke pemain
         const mode = url.searchParams.get('mode'), target = String(url.searchParams.get('peer') || ''), adminId = String(url.searchParams.get('admin') || '');
@@ -431,8 +514,8 @@ load();setInterval(load,5000);
   });
   // buang koneksi mati (proxy Railway bisa memutus koneksi diam)
   const hb = setInterval(() => wss.clients.forEach(ws => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} }), 25000);
-  server.on('close', () => clearInterval(hb));
-  const api = { server, wss, control: null, sendSave: () => sendAc('save', {}), state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
+  server.on('close', () => { clearInterval(hb); clearInterval(flushT); });
+  const api = { server, wss, control: null, weatherFn: null, vehicleFn: null, difficultyFn: null, onPlayers: null, forceSave: null, sendSave: () => sendAc('save', {}), state: () => ({ host: !!host, peers: peers.size, queue: queue.length }) };
   return api;
 }
 
