@@ -10,12 +10,12 @@ const env = process.env;
 const PORT = Number(env.PORT) || 7777;
 const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /data supaya dunia tersimpan
 const cfg = {
-  name: env.SERVER_NAME || 'MiniDayZ Server Indonesia',
+  name: env.SERVER_NAME || 'MiniDayZ+ Reimagined 2.3.9-mp27c3 Indonesia Server | BaseB,PvP,PvE,Bunker,IslandTravel',
   pw: env.SERVER_PASSWORD || '',
-  max: Number(env.MAX_PLAYERS) || 10,
+  max: Number(env.MAX_PLAYERS) || 50,
   pvp: env.PVP === '0' ? 0 : 1,
   save: Math.max(1, Number(env.SAVE_MINUTES) || 10),   // jeda minimal simpan otomatis (menit); tiap simpan membuat game membeku sesaat
-  region: env.REGION || '',
+  region: env.REGION || 'Indonesia',
 };
 
 // Sumber game: GAME_URL (default: situs GitHub Pages milikmu) atau folder game/ lokal bila ada.
@@ -134,7 +134,35 @@ function pageFindTeleportVehicle(a) {
 }
 // VEHICLE_FN_END
 
+// REGISTER_FN_START
+// Mendaftarkan server ke daftar publik: POST {REGISTRY}/register tiap menit, isi sama dengan server.js resmi.
+function postRegister(registry, body, cb) {
+  let u; try { u = new URL(registry + '/register'); } catch (e) { return cb(new Error('REGISTRY_URL tidak valid')); }
+  const lib = u.protocol === 'https:' ? require('https') : require('http'), data = JSON.stringify(body);
+  const req = lib.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }, timeout: 15000 }, res => {
+    let d = ''; res.on('data', x => d += x); res.on('end', () => cb(res.statusCode === 200 ? null : new Error((d || ('HTTP ' + res.statusCode)).slice(0, 160))));
+  });
+  req.on('error', e => cb(e)); req.on('timeout', () => req.destroy(new Error('timeout'))); req.end(data);
+}
+// REGISTER_FN_END
+
 const hub = createHub();
+{
+  const REGISTRY = String(env.REGISTRY_URL || '').replace(/\/+$/, '');
+  const publicUrl = () => String(env.PUBLIC_URL || (env.CODESPACE_NAME ? `https://${env.CODESPACE_NAME}-${PORT}.${env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev'}` : '')).replace(/\/+$/, '');
+  let regErr = null;
+  const register = () => {
+    const r = hub.roomNow(), url = publicUrl();
+    if (!REGISTRY || !r) return;
+    if (!url) { if (regErr !== 'url') { console.log('daftar server: PUBLIC_URL belum diketahui (di luar Codespaces isi PUBLIC_URL=https://...)'); regErr = 'url'; } return; }
+    postRegister(REGISTRY, { url, name: r.name, players: r.players, max: Math.max(1, r.max), pvp: !!r.pvp, locked: !!r.locked, ver: 'np1' }, err => {
+      const m = err ? String(err.message) : '';
+      if (m !== regErr) console.log(err ? 'daftar server publik belum menerima server ini: ' + m + ' (dicoba lagi tiap menit)' : 'server terdaftar di daftar publik: ' + url);
+      regErr = m;
+    });
+  };
+  if (REGISTRY) { console.log('pendaftaran daftar server aktif:', REGISTRY); setInterval(register, 60000); setTimeout(register, 15000); }
+}
 const onlineNow = () => hub.state().peers;
 hub.onPlayers = (n) => {                       // dipanggil hub tiap pemain masuk / keluar
   if (!cur) return;
@@ -218,6 +246,7 @@ async function launch() {
   fs.mkdirSync(profile, { recursive: true });
   const qs = (o) => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');   // game memakai decodeURIComponent: spasi harus %20, bukan +
   const q = ({ dedicated: '1', name: cfg.name, pw: cfg.pw, max: cfg.max, pvp: cfg.pvp, lan: '0', port: PORT, save: cfg.save, region: cfg.region });
+  if (env.RENDER !== '1') q.render = '0';                                 // host tersembunyi: game tidak menggambar, simulasi tetap jalan (hemat CPU/RAM)
   q.host = String(env.HOST_NAME || 'Server').slice(0, 24);                // nama survivor host yang diparkir (seperti hostName di server.json resmi)
   q.island = env.ISLAND || '1';                       // pulau 1-9
   if (env.BIG_MAP === '1') q.big = '1';               // peta besar 33x32 (hanya untuk dunia baru)
@@ -225,7 +254,8 @@ async function launch() {
   if (env.ENTRY_SECONDS) q.entry = env.ENTRY_SECONDS;  // hitung mundur pemain masuk (detik, 0-120)
   const base = (hasLocal && !env.GAME_URL) ? `http://127.0.0.1:${PORT}/` : GAME_URL.replace(/\/?$/, '/');
   const url = `${base}index.html?${qs(q)}`;
-  console.log('memuat game dari', base);
+  console.log('memuat game dari', base, (hasLocal && !env.GAME_URL) ? '(folder game/ dari APK)' : '(situs GAME_URL: pastikan versinya SAMA dengan APK pemain)');
+  if (!(hasLocal && !env.GAME_URL)) console.log('PERINGATAN: folder game/ tidak ada. Jalankan: bash setup-game.sh NAMA-APK.apk  (agar versi game host selalu sama dengan APK pemain)');
   try {
     const ctx = await chromium.launchPersistentContext(profile, {
       headless: true, viewport: { width: Number(env.VIEW_W) || 640, height: Number(env.VIEW_H) || 360 },
