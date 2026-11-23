@@ -181,6 +181,7 @@ ks.onclick=async()=>{const x=await call('setkit?on='+(ko.checked?1:0)+'&respawn=
 load();
 </script>`;
   const ADMIN_PAGE = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Admin</title>
+<div style="background:#8a2b2b;color:#fff;padding:10px;border-radius:8px;margin-bottom:10px;font:15px system-ui"><b>panel.html tidak ditemukan.</b> Ini halaman admin sederhana. Upload <code>panel.html</code> ke repo (satu folder dengan hub.js), lalu jalankan <code>git pull</code> di Codespace. Tidak perlu restart server.</div>
 <style>body{font:16px system-ui;background:#111;color:#eee;margin:12px}h3{margin:0 0 8px}.p{border:1px solid #444;border-radius:8px;padding:8px;margin:8px 0}
 small{color:#999;word-break:break-all}button{font:inherit;margin:6px 6px 0 0;padding:8px 12px;border-radius:6px;border:0;background:#2d6a2d;color:#fff}button.r{background:#8a2b2b}button.g{background:#555}</style>
 <h3 id=t>Pemain</h3><a id=lg style="color:#8cf">Lihat log server</a> &nbsp; <a id=rl style="color:#8cf">Aturan dunia</a><div id=l>memuat...</div>

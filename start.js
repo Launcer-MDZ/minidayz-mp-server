@@ -12,7 +12,7 @@ const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /
 const cfg = {
   name: env.SERVER_NAME || 'MiniDayZ+ Reimagined 2.3.9-mp27c3 Indonesia Server | BaseB,PvP,PvE,Bunker,IslandTravel',
   pw: env.SERVER_PASSWORD || '',
-  max: Number(env.MAX_PLAYERS) || 50,
+  max: Number(env.MAX_PLAYERS) || 20,
   pvp: env.PVP === '0' ? 0 : 1,
   save: Math.max(1, Number(env.SAVE_MINUTES) || 10),   // jeda minimal simpan otomatis (menit); tiap simpan membuat game membeku sesaat
   region: env.REGION || 'Indonesia',
@@ -134,6 +134,13 @@ function pageFindTeleportVehicle(a) {
 }
 // VEHICLE_FN_END
 
+// REGISTRY_FN_START  (dijalankan di dalam halaman game host)
+// Alamat daftar server publik: sama dengan registryUrl() milik game (localStorage mdz_registry, atau modul P2P game).
+function pageRegistry() {
+  try { return String(localStorage.getItem('mdz_registry') || (window.MDZP2P && window.MDZP2P.registry && window.MDZP2P.registry()) || '').replace(/\/+$/, ''); } catch (e) { return ''; }
+}
+// REGISTRY_FN_END
+
 // REGISTER_FN_START
 // Mendaftarkan server ke daftar publik: POST {REGISTRY}/register tiap menit, isi sama dengan server.js resmi.
 function postRegister(registry, body, cb) {
@@ -148,12 +155,16 @@ function postRegister(registry, body, cb) {
 
 const hub = createHub();
 {
-  const REGISTRY = String(env.REGISTRY_URL || '').replace(/\/+$/, '');
+  let found = '';                                   // alamat registry yang ditemukan dari game
+  const registry = () => String(env.REGISTRY_URL || found || '').replace(/\/+$/, '');
+  hub.findRegistry = async () => { if (!found && cur) { try { const r = await cur.page.evaluate(pageRegistry); if (r && /^https?:\/\//i.test(r)) { found = r; console.log('alamat daftar server ditemukan dari game:', r); } } catch (e) {} } return registry(); };
   const publicUrl = () => String(env.PUBLIC_URL || (env.CODESPACE_NAME ? `https://${env.CODESPACE_NAME}-${PORT}.${env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev'}` : '')).replace(/\/+$/, '');
   let regErr = null;
   const register = () => {
     const r = hub.roomNow(), url = publicUrl();
-    if (!REGISTRY || !r) return;
+    const REGISTRY = registry();
+    if (env.LISTED === '0' || !r) return;
+    if (!REGISTRY) { if (regErr !== 'reg') { console.log('daftar server: alamat registry belum ditemukan dari game (isi REGISTRY_URL bila kamu tahu alamatnya)'); regErr = 'reg'; } return; }
     if (!url) { if (regErr !== 'url') { console.log('daftar server: PUBLIC_URL belum diketahui (di luar Codespaces isi PUBLIC_URL=https://...)'); regErr = 'url'; } return; }
     postRegister(REGISTRY, { url, name: r.name, players: r.players, max: Math.max(1, r.max), pvp: !!r.pvp, locked: !!r.locked, ver: 'np1' }, err => {
       const m = err ? String(err.message) : '';
@@ -161,7 +172,10 @@ const hub = createHub();
       regErr = m;
     });
   };
-  if (REGISTRY) { console.log('pendaftaran daftar server aktif:', REGISTRY); setInterval(register, 60000); setTimeout(register, 15000); }
+  if (env.LISTED !== '0') {
+    const disc = setInterval(async () => { if (await hub.findRegistry()) clearInterval(disc); }, 10000); setTimeout(() => clearInterval(disc), 15 * 60000);
+    setInterval(register, 60000); setTimeout(register, 20000);
+  }
 }
 const onlineNow = () => hub.state().peers;
 hub.onPlayers = (n) => {                       // dipanggil hub tiap pemain masuk / keluar

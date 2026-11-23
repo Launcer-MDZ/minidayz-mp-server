@@ -1,0 +1,245 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>MiniDayZ Admin</title>
+<style>
+body{font:15px system-ui;background:#10141b;color:#e6e6e6;margin:0 0 40px}
+#top{position:sticky;top:0;background:#10141b;padding:8px 10px;border-bottom:1px solid #2a3340;z-index:2}
+#tabs button{background:#232b38;margin:4px 4px 0 0}#tabs button.on{background:#2d6a2d}
+#app{padding:8px 10px}h4{color:#7db4ff;margin:14px 0 6px;border-bottom:1px solid #2a3340}
+.c{border:1px solid #2a3340;border-radius:8px;padding:8px;margin:8px 0}small,.d{color:#8d98a8;word-break:break-all}
+button{font:inherit;margin:5px 5px 0 0;padding:6px 10px;border:0;border-radius:6px;background:#2f4c7a;color:#fff}
+button.r{background:#8a2b2b}button.g{background:#444}button.on{background:#2d6a2d}
+input,select{font:inherit;padding:6px;background:#1b222d;color:#eee;border:1px solid #3a4658;border-radius:6px;max-width:100%}
+input[type=number]{width:80px}.it{max-height:210px;overflow:auto;border:1px solid #2a3340;border-radius:8px}
+.it div{padding:6px 8px;border-bottom:1px solid #1d2531}.it div.sel{background:#2d6a2d}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #1d2531;padding:6px 0}
+pre{white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,monospace}.e{color:#f88}
+</style>
+<div id=top><b id=ttl>MiniDayZ Admin</b> <small id=sub></small><div id=tabs></div></div><div id=app>memuat...</div>
+<script>
+const K=new URLSearchParams(location.search).get('key')||'';
+const api=p=>fetch('/admin/'+p+(p.includes('?')?'&':'?')+'key='+encodeURIComponent(K)).then(r=>r.json());
+const act=(c,a)=>api('act?c='+c+'&a='+encodeURIComponent(JSON.stringify(a||{}))).then(j=>{if(!j.ok)alert(j.error||'gagal');setTimeout(load,700);return j;});
+const h=(t,p,...c)=>{const e=document.createElement(t);for(const k in(p||{})){const v=p[k];if(k.slice(0,2)==='on')e[k]=v;else if(k==='class')e.className=v;else if(v!==false&&v!=null)e.setAttribute(k,v===true?'':v);}
+c.flat(9).forEach(x=>{if(x!=null&&x!==false)e.append(x.nodeType?x:String(x));});return e;};
+const b=(t,f,cls)=>h('button',{onclick:f,class:cls||''},t);
+let S=null,ITEMS=[],RD=[],LOGS=[],BK=null;
+const U={isl:{labels:{},current:null},wx:null,wxLock:false,diffNow:'?',vt:'',vtAdm:'',car:'1',carm:'',carAdm:'',tpPeer:'',tpX:'',tpY:'',tpDest:'',tpAdm:'',nbC:'',nbR:'',nbP:'',bkLabel:'',annDraft:null,nk:'1',nn:'1',na:'',nbv:'',vbv:'',tab:'pemain',q:'',cat:'all',sel:null,qty:'1',st:'',cond:'100',tgt:'',hour:'12',say:''};
+const TABS=[['pemain','Pemain'],['barang','Barang & kit'],['dunia','Dunia'],['spawn','Spawn'],['alat','Alat'],['cadangan','Cadangan'],['aturan','Aturan'],['aman','Keamanan'],['log','Log']];
+const nm=id=>{const x=ITEMS.find(i=>i[0]===id);return x?x[1]:'#'+id;};
+const ACTN={notify:'beri tahu admin',kick:'kick',ban:'ban',banip:'ban + IP','allowed (admin)':'diizinkan (admin)',logged:'dicatat'};
+const typing=()=>{const a=document.activeElement;return a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)&&app.contains(a);};
+const bind=(id,k,type,ph)=>h('input',{id,type:type||'text',value:U[k],placeholder:ph||null,oninput:e=>{U[k]=e.target.value;}});
+
+async function load(){
+  try{S=await api('state');if(!ITEMS.length)ITEMS=(await api('items')).items||[];if(!RD.length)RD=(await api('rulesdata')).defs||[];
+    if(U.tab==='log')LOGS=(await api('logdata')).lines||[];if(U.tab==='cadangan')BK=await api('backups');if(U.tab==='dunia'){const d=await api('difficulty');U.diffNow=d.ok?d.level:'?';const w=await api('weather');U.wx=w.ok?w:null;const il=await api('islands');if(il.ok)U.isl=il;}}catch(e){S=null;}
+  if(!typing())draw();
+}
+function draw(){
+  tabs.replaceChildren(...TABS.map(t=>h('button',{class:U.tab===t[0]?'on':'',onclick:()=>{U.tab=t[0];load();}},t[1])));
+  if(!S){app.replaceChildren('Gagal memuat (kunci salah atau server mati).');return;}
+  ttl.textContent=S.name||'MiniDayZ Admin';
+  sub.textContent=(S.online?'online':'host offline')+(S.fps!=null?' · '+S.fps+' fps':'')+(S.mem!=null?' · '+S.mem+' MB':'')+(S.world?' · hari '+S.world.day+' · '+Math.floor(S.world.time/60)+':'+('0'+Math.round(S.world.time%60)).slice(-2):'');
+  const f={pemain:pemain,barang:barang,dunia:dunia,spawn:spawn,alat:alat,cadangan:cadangan,aturan:aturan,aman:aman,log:log}[U.tab];
+  app.replaceChildren(f());
+}
+function pemain(){
+  const ps=(S.players||[]);
+  return h('div',{},h('h4',{},'Pemain ('+ps.filter(p=>p.id!=='h').length+')'),ps.length?ps.map(p=>h('div',{class:'c'},
+    h('b',{},p.name),p.admin?' (admin)':'',p.id==='h'?' (server)':'',h('br'),
+    h('small',{},p.id+' · '+(p.uid||'').slice(0,10)+' · '+(p.ip||'-')+' · PvP '+p.pvpKills+'/'+p.pvpDeaths+(p.x==null?' · tidak ada posisi (mati / baru masuk)':'')),h('br'),
+    b('Sembuhkan',()=>act('heal',{peer:p.id})),b('Dewa',()=>act('god',{peer:p.id,on:true})),b('Dewa mati',()=>act('god',{peer:p.id,on:false})),
+    p.id==='h'?null:[
+      b(p.admin?'Cabut admin':'Jadikan admin',()=>act('admin',{peer:p.id,on:!p.admin}),p.admin?'on':''),
+      b('Kick',()=>{const w=prompt('Alasan kick (opsional)','');if(w!==null)act('kick',{peer:p.id,text:w});},'r'),
+      b('Ban',()=>{const w=prompt('Alasan ban (opsional)','');if(w!==null)act('ban',{peer:p.id,text:w,ip:false});},'r'),
+      b('Ban + IP',()=>{const w=prompt('Alasan ban + IP (opsional)','');if(w!==null)act('ban',{peer:p.id,text:w,ip:true});},'r'),
+      b('Beri barang',()=>{U.tgt=p.uid||'';U.tab='barang';draw();})
+    ])):'Belum ada pemain.',
+    h('small',{},'Kendaraan dan NPC hanya bisa dimunculkan dari panel admin di game (butuh posisi admin).'));
+}
+function barang(){
+  const q=U.q.toLowerCase(),cats=['all'].concat([...new Set(ITEMS.map(i=>i[2]))]);
+  const list=ITEMS.filter(i=>(U.cat==='all'||i[2]===U.cat)&&(!q||i[1].toLowerCase().includes(q)||String(i[0])===q)).slice(0,60);
+  const M=ITEMS.find(i=>i[0]===U.sel),gun=M&&(M[2]==='Rifle'||M[2]==='Pistol'),can=!!M&&M[3]!==0,lbl=!M?'STACK':gun?'AMMO':M[4]?'CHARGE %':'STACK';
+  const ps=(S.players||[]).filter(p=>p.id!=='h'&&p.uid);
+  const tp=ps.find(p=>p.uid===U.tgt);const K2=S.kit||{on:false,respawn:false,cond:100,items:[]};
+  const setKit=o=>act('kit',Object.assign({on:K2.on,respawn:K2.respawn,cond:K2.cond,items:K2.items},o));
+  const qs='&qty='+encodeURIComponent(U.qty)+'&cond='+encodeURIComponent(U.cond)+'&st='+encodeURIComponent(U.st);
+  return h('div',{},h('h4',{},'Barang'),
+    h('select',{onchange:e=>{U.cat=e.target.value;draw();}},cats.map(c=>h('option',{value:c,selected:c===U.cat},c==='all'?'Semua':c))),' ',bind('q','q','text','cari nama / ID'),' ',
+    h('select',{onchange:e=>{U.tgt=e.target.value;}},h('option',{value:''},'pilih pemain'),ps.map(p=>h('option',{value:p.uid,selected:p.uid===U.tgt},p.name+(p.x==null?' (mati/baru)':'')))),
+    h('div',{class:'it'},list.map(i=>h('div',{class:U.sel===i[0]?'sel':'',onclick:()=>{U.sel=i[0];draw();}},i[1]+' ',h('small',{},i[2]+' #'+i[0]+(i[3]===0?' (tidak bisa dibuat)':''))))),
+    h('div',{style:'margin-top:8px'},'QTY ',bind('qty','qty','number'),' ',lbl,' ',bind('st','st','number',M&&M[4]&&!gun?'auto':''),' COND % ',bind('cond','cond','number')),
+    h('small',{},M?'Terpilih: '+M[1]+(can?'':' - game tidak bisa membuat barang ini'):'Pilih barang di atas.'),h('br'),
+    b('Beri sekarang',()=>{if(!can||!tp)return alert('Pilih barang yang bisa dibuat dan pemain (yang hidup).');api('give?peer='+tp.id+'&id='+U.sel+qs).then(j=>{if(!j.ok)alert(j.error);load();});},can?'':'g'),
+    b('Beri saat hidup lagi',()=>{if(!can||!U.tgt)return alert('Pilih barang yang bisa dibuat dan pemain.');const p=ps.find(x=>x.uid===U.tgt);
+      api('gift?uid='+encodeURIComponent(U.tgt)+'&name='+encodeURIComponent(p?p.name:'')+'&itemId='+U.sel+qs).then(j=>{alert(j.ok?'Masuk antrean. Dikirim saat pemain respawn / masuk lagi.':j.error);load();});},'g'),
+    b('Tambah ke kit',()=>{if(!U.sel)return;setKit({items:K2.items.concat([U.sel]).slice(0,20)});}),
+    h('small',{},' STACK = jumlah dalam satu tumpukan; AMMO untuk senjata; CHARGE % untuk barang berbaterai (kosong = otomatis). "Beri sekarang" gagal bila pemain sedang mati.'),
+    h('h4',{},'Perlengkapan awal (pendatang baru)'),
+    h('label',{},h('input',{type:'checkbox',checked:K2.on,onchange:e=>setKit({on:e.target.checked})}),' berikan '),
+    h('label',{},h('input',{type:'checkbox',checked:K2.respawn,onchange:e=>setKit({respawn:e.target.checked})}),' juga setelah mati '),
+    ' kondisi ',h('input',{type:'number',value:K2.cond,min:1,max:100,onchange:e=>setKit({cond:Number(e.target.value)||100})}),'%',h('br'),
+    K2.items.length?K2.items.map((id,n)=>b(nm(id)+' ×',()=>{const a=K2.items.slice();a.splice(n,1);setKit({items:a});})):h('small',{},'Kit kosong. Pilih barang lalu "Tambah ke kit".'),
+    h('h4',{},'Antrean hadiah ('+(S.gifts||[]).length+')'),
+    (S.gifts||[]).length?S.gifts.map((g,i)=>h('div',{class:'row'},h('span',{},(g.name||g.uid.slice(0,8))+' ← '+g.qty+'× '+nm(g.itemId)+(g.st?' ('+g.st+')':'')),b('Hapus',()=>api('giftdel?i='+i).then(load),'r'))):h('small',{},'Kosong.'));
+}
+function dunia(){
+  const bk=S.bunker||{},fe=S.ferry;
+  const bt=bk.none?'tidak ada / tertutup':bk.phase===1?'terbuka, sisa '+Math.round(bk.left/60)+' menit':bk.phase===2?'menutup, gas '+Math.round(bk.left/60)+' menit':'tertutup, buka dalam '+Math.round(bk.left/60)+' menit';
+  return h('div',{},h('h4',{},'Dunia'),
+    'jam ',bind('hr','hour','number'),':00 ',b('Atur',()=>act('time',{minutes:(Number(U.hour)||0)*60})),
+    b('PvP '+(S.pvp?'ON':'OFF'),()=>act('pvp',{on:!S.pvp}),S.pvp?'on':''),h('br'),
+    h('input',{id:'say',placeholder:'pengumuman untuk semua orang',value:U.say,style:'width:70%',oninput:e=>{U.say=e.target.value;}}),b('Kirim',()=>{if(U.say){act('say',{text:U.say});U.say='';}}),
+    h('br'),h('b',{},'Bunker '),h('small',{},bt),h('br'),b('Buka sekarang',()=>act('bunker',{act:'open'})),b('Tutup sekarang',()=>act('bunker',{act:'close'})),
+    fe?[h('br'),h('b',{},'Perahu / voting '),h('small',{},'ke pulau '+fe.to+', '+fe.left+' dtk'),b('Berangkat sekarang',()=>act('ferry',{act:'now'}))]:null,
+    h('br'),b('Simpan dunia sekarang',()=>act('save',{})),
+    h('h4',{},'Pindah semua pemain ke pulau'),
+    h('div',{},[1,2,3,4,5,6,7,8,9].map(n=>{const lb=(U.isl.labels||{})[n];return h('span',{style:'display:inline-block;margin:2px 4px 2px 0'},
+      b('Pulau '+n+(lb?' - '+lb:''),()=>{if(confirm('Pindahkan SEMUA pemain ke pulau '+n+(lb?' ('+lb+')':'')+'?'))act('island',{n});},String(U.isl.current)===String(n)?'on':'r'),
+      b('✎',()=>{const v=prompt('Nama untuk pulau '+n+' (kosong = hapus)',lb||'');if(v!==null)api('islandlabel?n='+n+'&label='+encodeURIComponent(v)).then(()=>load());},'g'));})),
+    h('small',{},'Setiap pulau datang dengan tanah dan tata letaknya sendiri. Tombol ✎ untuk memberi nama (mis. salju, kering); nama tersimpan di server.'),
+    h('h4',{},'Cuaca (percobaan)'),
+    h('div',{},'Sekarang: ',h('b',{},U.wx?(U.wx.rain?(U.wx.level===2?'badai (level 2)':'hujan (level '+U.wx.level+')'):'cerah')+(U.wx.locked?' - dikunci':''):'?')),
+    [['cerah','Cerah'],['hujan','Hujan'],['badai','Badai / salju']].map(m=>b(m[1],()=>api('weather?mode='+m[0]+'&lock='+(U.wxLock?1:0)).then(j=>{if(!j.ok)alert(j.error);load();}))),
+    b('Lepas kunci',()=>api('weather?mode=bebas').then(()=>load()),'g'),
+    h('label',{},h('input',{type:'checkbox',checked:U.wxLock,onchange:e=>{U.wxLock=e.target.checked;}}),' kunci (cegah game mengganti cuaca)'),
+    h('div',{},h('small',{},'Memakai variabel cuaca game (level 1 = hujan, level 2 = badai). Efek gambar dan suara dimulai oleh event cuaca game sendiri, jadi hasilnya bisa tidak lengkap; coba lalu laporkan. Game tidak punya cuaca panas, dan jenis tanah (hijau, kering, salju) ditentukan pulau saat dunia dibuat sehingga tidak bisa diganti di dunia berjalan.')),
+    h('h4',{},'Tingkat kesulitan (dunia yang sedang berjalan)'),
+    h('div',{},'Sekarang: ',h('b',{},U.diffNow)),
+    [['Novice','Pemula'],['Regular','Biasa'],['Veteran','Veteran'],['Legend','Legendaris']].map(d=>b(d[1],()=>{if(confirm('Ubah kesulitan dunia ini ke '+d[1]+'? Berlaku langsung untuk semua pemain.'))api('difficulty?level='+d[0]).then(j=>{alert(j.ok?'Diubah ke '+j.level:j.error);load();});},U.diffNow===d[0]?'on':'')),
+    h('div',{},h('small',{},'Yang berubah langsung: dingin, damage zombi dan serigala, pemulihan, dan pengecekan lain yang bergantung kesulitan. Yang TIDAK berubah: isi dunia yang sudah dibuat (jumlah zombi per pangkalan, desa, flag spawn), serta fitur khusus Legendaris seperti pembatasan peta.')),
+    h('h4',{},'Chat terakhir'),(S.chat||[]).length?h('div',{},S.chat.slice(-15).map(c=>h('div',{},h('b',{},c[0]+': '),c[1]))):h('small',{},'Belum ada.'));
+}
+function spawn(){
+  const ru=S.rules||{},nb=ru.mp_npc_budget===undefined?30:ru.mp_npc_budget,vb=ru.mp_vehicle_budget===undefined?0:ru.mp_vehicle_budget;
+  const set=(k,v)=>act('rule',{key:k,value:v});
+  const num=(k,lo,hi)=>{const v=Number(U[k]);if(!(v>=lo&&v<=hi)){alert('Isi angka '+lo+'-'+hi);return null;}return v;};
+  return h('div',{},h('h4',{},'Jumlah NPC per area'),
+    h('div',{},'Anggaran sekarang: ',h('b',{},nb),h('small',{},ru.mp_npc_budget===undefined?' (bawaan game: 30)':'')),
+    [30,60,100,150,200].map(n=>b(String(n),()=>set('mp_npc_budget',n),n===nb?'on':'')),h('br'),
+    'angka lain (10-200) ',h('input',{type:'number',min:10,max:200,value:U.nbv,placeholder:String(nb),oninput:e=>{U.nbv=e.target.value;}}),
+    b('Simpan',()=>{const v=num('nbv',10,200);if(v!==null)set('mp_npc_budget',v);}),b('Bawaan','g',()=>set('mp_npc_budget','')),
+    h('p',{},h('small',{},'Ini batas NPC yang boleh aktif di sekitar satu titik (zombi, survivor, bandit, army dihitung bersama, tidak per jenis). Batas efektif = angka ini, ditambah 10 untuk tiap pemain tambahan di area itu, maksimal 3× angkanya. Angka lebih besar = lebih ramai tapi lebih berat bagi server (Codespace/Chromium). Naikkan bertahap dan pantau fps di bar atas.')),
+    h('h4',{},'Batas kendaraan'),
+    h('div',{},'Sekarang: ',h('b',{},vb||'tanpa batas')),
+    h('input',{type:'number',min:0,max:200,value:U.vbv,placeholder:String(vb),oninput:e=>{U.vbv=e.target.value;}}),
+    b('Simpan',()=>{const v=num('vbv',0,200);if(v!==null)set('mp_vehicle_budget',v);}),
+    h('p',{},h('small',{},'0 = tanpa batas. Kendaraan yang sudah ada tidak dihapus; hanya mencegah yang baru.')),
+    h('h4',{},'Munculkan NPC (seperti panel admin di game)'),
+    (()=>{const NK=[[1,'Zombie'],[3,'Fast zombie'],[9,'Army zombie'],[4,'Gunner zombie'],[6,'Screamer'],[22,'Army boss'],[23,'Fast boss'],[13,'Wolf'],[26,'Bear'],[14,'Deer'],[15,'Rabbit'],[21,'Chicken'],[27,'Pig']];
+      const ads=(S.players||[]).filter(p=>p.admin&&p.id!=='h'&&p.x!=null);
+      return h('div',{},h('select',{onchange:e=>{U.nk=e.target.value;}},NK.map(k=>h('option',{value:k[0],selected:String(k[0])===U.nk},k[1]))),' x ',
+        h('input',{type:'number',min:1,max:20,value:U.nn,oninput:e=>{U.nn=e.target.value;}}),h('br'),'di sebelah admin ',
+        h('select',{onchange:e=>{U.na=e.target.value;}},h('option',{value:''},ads.length?'pilih admin':'(tidak ada admin yang sedang hidup)'),ads.map(p=>h('option',{value:p.id,selected:p.id===U.na},p.name))),h('br'),
+        b('Munculkan',()=>{if(!U.na)return alert('Pilih admin yang sedang online dan hidup di game.');api('npc?kind='+U.nk+'&count='+encodeURIComponent(U.nn)+'&peer='+encodeURIComponent(U.na)).then(j=>{if(!j.ok)alert(j.error);else alert('Dimunculkan di sebelah admin.');});}),
+        h('small',{},' Daftar game hanya berisi zombi, boss, dan hewan. Survivor, bandit, dan army manusia tidak ada di daftar itu.'));})(),
+    h('h4',{},'Jenis NPC yang tidak pernah muncul'),
+    (()=>{const d=RD.find(x=>x.k==='mp_npc_off');return d&&d.opts?npcOff(d,ru):h('small',{},'Butuh game versi 2.3.9-mp27c atau lebih baru.');})(),
+    h('small',{},'Centang jenis yang ingin dimatikan (mis. bandit atau army). Game hanya menyediakan saklar mati/hidup per jenis, bukan jumlahnya.'));
+}
+function alat(){
+  const ps=(S.players||[]).filter(p=>p.id!=='h'),ads=ps.filter(p=>p.admin&&p.x!=null);
+  const adSel=k=>h('select',{onchange:e=>{U[k]=e.target.value;}},h('option',{value:''},ads.length?'pilih admin':'(tidak ada admin yang sedang hidup)'),ads.map(p=>h('option',{value:p.id,selected:p.id===U[k]},p.name)));
+  const plSel=(k,ph)=>h('select',{onchange:e=>{U[k]=e.target.value;}},h('option',{value:''},ph),ps.map(p=>h('option',{value:p.id,selected:p.id===U[k]},p.name+(p.x==null?' (tanpa posisi)':''))));
+  const P=id=>ps.find(p=>p.id===id);
+  const CARS=[[1,'UAZ'],[2,'Volga'],[3,'Humvee'],[4,'KA'],[5,'Tank']];
+  const cell=p=>[Math.floor((p.x-700)/1020),Math.floor((p.y-320)/1020)];
+  const nb=S.nobuild||[];
+  const ann=()=>{
+    if(!U.annDraft){const a=S.announce||{};U.annDraft={join:a.join||'',list:(a.list||[]).map(q=>Object.assign({},q))};}
+    const D=U.annDraft;
+    return h('div',{},h('h4',{},'Pengumuman'),'Pesan saat pemain masuk: ',h('input',{value:D.join,style:'width:90%',oninput:e=>{D.join=e.target.value;}}),
+      D.list.map((q,i)=>h('div',{class:'c'},h('input',{value:q.text,style:'width:95%',placeholder:'isi pesan',oninput:e=>{q.text=e.target.value;}}),h('br'),
+        h('select',{onchange:e=>{q.mode=e.target.value;draw();}},[['every','tiap N menit'],['at','jam tertentu']].map(o=>h('option',{value:o[0],selected:q.mode===o[0]},o[1]))),' ',
+        q.mode==='at'?h('input',{value:q.at||'',placeholder:'HH:MM',style:'width:80px',oninput:e=>{q.at=e.target.value;}}):h('input',{type:'number',min:1,max:1440,value:q.every||10,oninput:e=>{q.every=Number(e.target.value);}}),' ',
+        h('label',{},h('input',{type:'checkbox',checked:q.on!==false,onchange:e=>{q.on=e.target.checked;}}),' aktif'),h('br'),
+        b('Kirim sekarang',()=>act('announce_now',{i})),b('Hapus',()=>{D.list.splice(i,1);draw();},'r'))),
+      b('Tambah pesan',()=>{if(D.list.length<20){D.list.push({text:'',mode:'every',every:10,at:'',on:true});draw();}}),
+      b('Simpan pengumuman',()=>{act('announce',D).then(()=>{U.annDraft=null;});}),
+      h('small',{},' "Kirim sekarang" memakai daftar yang sudah disimpan.'));
+  };
+  return h('div',{},
+    h('h4',{},'Kendaraan'),
+    h('select',{onchange:e=>{U.car=e.target.value;}},CARS.map(c=>h('option',{value:c[0],selected:String(c[0])===U.car},c[1]))),' atau kode ',
+    h('input',{type:'number',min:1,max:5,style:'width:60px',value:U.carm,placeholder:'1-5',oninput:e=>{U.carm=e.target.value;}}),h('br'),
+    'di sebelah admin ',adSel('carAdm'),b('Munculkan',()=>{if(!U.carAdm)return alert('Pilih admin yang sedang online dan hidup di game.');
+      api('car?kind='+encodeURIComponent(U.carm||U.car)+'&peer='+encodeURIComponent(U.carAdm)).then(j=>alert(j.ok?'Kendaraan dimunculkan di sebelah admin.':j.error));}),
+    h('small',{},' Game hanya mengenal kode 1-5 (UAZ, Volga, Humvee, KA, Tank).'),
+    h('div',{style:'margin-top:8px'},'Kode tipe manual ',h('input',{value:U.vt,placeholder:'t1700',style:'width:100px',oninput:e=>{U.vt=e.target.value.trim();}}),' di sebelah admin ',adSel('vtAdm'),
+      b('Cari & teleport',()=>{if(!/^t\d{1,5}$/i.test(U.vt))return alert('Isi kode seperti t1700.');if(!U.vtAdm)return alert('Pilih admin yang sedang online dan hidup di game.');
+        api('vehicle?code='+encodeURIComponent(U.vt)+'&peer='+encodeURIComponent(U.vtAdm)).then(j=>alert(j.ok?'Dipindahkan dari ('+j.from.x+', '+j.from.y+') ke sebelah admin.':j.error));}),
+      h('small',{},' Memindahkan kendaraan bertipe itu yang sudah ada di dunia (yang terdekat dengan admin). Tidak membuat kendaraan baru, dan tipe non-kendaraan ditolak.')),
+    h('h4',{},'Teleport'),
+    plSel('tpPeer','pilih pemain'),h('br'),
+    'ke X ',h('input',{type:'number',style:'width:90px',value:U.tpX,oninput:e=>{U.tpX=e.target.value;}}),' Y ',h('input',{type:'number',style:'width:90px',value:U.tpY,oninput:e=>{U.tpY=e.target.value;}}),
+    b('Teleport',()=>{if(!U.tpPeer||U.tpX===''||U.tpY==='')return alert('Pilih pemain dan isi X, Y.');act('tp',{peer:U.tpPeer,x:Number(U.tpX),y:Number(U.tpY)});}),h('br'),
+    'atau ke pemain ',plSel('tpDest','pilih tujuan'),b('Teleport ke pemain',()=>{const d=P(U.tpDest);if(!U.tpPeer||!d||d.x==null)return alert('Pilih pemain dan tujuan yang punya posisi.');act('tp',{peer:U.tpPeer,x:Math.round(d.x+30),y:Math.round(d.y)});}),h('br'),
+    'lewat admin ',adSel('tpAdm'),
+    b('Bawa pemain ke admin',()=>{if(!U.tpPeer||!U.tpAdm)return alert('Pilih pemain dan admin.');api('tpx?mode=bring&peer='+encodeURIComponent(U.tpPeer)+'&admin='+encodeURIComponent(U.tpAdm)).then(j=>{if(!j.ok)alert(j.error);});}),
+    b('Admin ke pemain',()=>{if(!U.tpPeer||!U.tpAdm)return alert('Pilih pemain dan admin.');api('tpx?mode=goto&peer='+encodeURIComponent(U.tpPeer)+'&admin='+encodeURIComponent(U.tpAdm)).then(j=>{if(!j.ok)alert(j.error);});}),
+    h('h4',{},'Zona larangan bangun ('+nb.length+' sel di pulau ini)'),
+    nb.length?nb.map(k=>{const [c,r]=k.split(',').map(Number);return h('div',{class:'row'},h('span',{},'sel '+k),b('Hapus',()=>act('nobuild',{c,r,on:false}),'r'));}):h('small',{},'Belum ada zona.'),
+    h('div',{},'tambah di posisi ',plSel('nbP','pilih pemain'),b('Tambah sel pemain',()=>{const p=P(U.nbP);if(!p||p.x==null)return alert('Pilih pemain yang punya posisi.');const [c,r]=cell(p);act('nobuild',{c,r,on:true});})),
+    h('div',{},'atau kolom ',h('input',{type:'number',style:'width:70px',value:U.nbC,oninput:e=>{U.nbC=e.target.value;}}),' baris ',h('input',{type:'number',style:'width:70px',value:U.nbR,oninput:e=>{U.nbR=e.target.value;}}),
+      b('Tambah',()=>{if(U.nbC===''||U.nbR==='')return;act('nobuild',{c:Number(U.nbC),r:Number(U.nbR),on:true});})),
+    h('small',{},'Satu sel = 1020 x 1020 unit peta. Zona berlaku untuk pulau yang sedang berjalan.'),
+    ann());
+}
+function cadangan(){
+  const bk=BK||{backups:[],enabled:false};
+  const doBk=push=>api('backup?push='+(push?1:0)+'&label='+encodeURIComponent(U.bkLabel)).then(j=>{alert(j.ok?'Cadangan dibuat: '+j.name+(j.pushed?' (di-push ke GitHub)':j.gitError?' (push gagal: '+j.gitError+')':''):j.error);load();});
+  return h('div',{},h('h4',{},'Cadangan dunia'),
+    bk.enabled?null:h('div',{class:'e'},'Fitur belum aktif: upload backup.js dan start.js terbaru, lalu restart server.'),
+    'label (opsional) ',bind('bkl','bkLabel'),h('br'),
+    b('Cadangkan + push ke GitHub',()=>doBk(true)),b('Cadangkan tanpa push',()=>doBk(false),'g'),
+    bk.busy?h('div',{},h('small',{},'Sedang memproses...')):null,
+    bk.last?h('div',{},h('small',{},'Terakhir: '+bk.last.name+' ('+Math.round(bk.last.size/1024)+' KB) '+(bk.last.pushed?'di-push ke GitHub':bk.last.error?'push gagal: '+bk.last.error:'tanpa push'))):null,
+    h('h4',{},'Daftar cadangan ('+bk.backups.length+')'),
+    bk.backups.length?bk.backups.map(x=>h('div',{class:'row'},h('span',{},x.name+' ',h('small',{},Math.round(x.size/1024)+' KB')),
+      b('Muat',()=>{if(confirm('Muat '+x.name+'? Dunia sekarang diganti, server restart dan semua pemain terputus. Cadangan pengaman dibuat otomatis.'))api('restore?confirm=1&name='+encodeURIComponent(x.name)).then(j=>alert(j.ok?'Memulihkan... server restart sebentar.':j.error));},'r'))):h('small',{},'Belum ada.'),
+    h('p',{},h('small',{},'Cadangan berisi data dunia dan data pemain (UID, IP pada daftar ban). Jangan simpan di repo publik.')));
+}
+
+function npcOff(d,ru){
+  const cur=String(ru[d.k]||'').split(',').filter(Boolean);
+  const set=ids=>act('rule',{key:d.k,value:ids.join(',')});
+  return h('div',{},d.opts.map(o=>h('label',{style:'display:inline-block;margin:3px 10px 3px 0'},h('input',{type:'checkbox',checked:cur.includes(o.id),onchange:e=>{set(e.target.checked?cur.concat([o.id]):cur.filter(x=>x!==o.id));}}),' '+o.label)),
+    b('Semua boleh muncul (bawaan)',()=>set([]),'g'));
+}
+function aturan(){
+  const ru=S.rules||{};
+  return h('div',{},h('h4',{},'Aturan dunia'),h('small',{},'Kosong = bawaan game. Perubahan berlaku langsung.'),RD.map(d=>{
+    const v=ru[d.k];let el;
+    if(d.type==='l'){return h('div',{class:'row',style:'display:block'},h('div',{},d.label),npcOff(d,ru));}
+    if(d.type==='b'){el=h('select',{onchange:e=>act('rule',{key:d.k,value:e.target.value===''?'':Number(e.target.value)})},[['','bawaan'],['0','mati'],['1','nyala']].map(o=>h('option',{value:o[0],selected:String(v===undefined?'':v)===o[0]},o[1])));}
+    else{el=h('input',{type:'number',step:'any',min:d.min,max:d.max,placeholder:d.min+'-'+d.max,value:v===undefined?'':v,onchange:e=>act('rule',{key:d.k,value:e.target.value===''?'':Number(e.target.value)})});}
+    return h('div',{class:'row'},h('span',{},d.label),el);}));
+}
+function aman(){
+  const ac=S.ac||{cfg:{},log:[]},c0=ac.cfg||{},bn=S.bans||{uid:{},ip:{}};
+  const ACT=[['notify','beri tahu admin'],['kick','kick'],['ban','ban'],['banip','ban + IP']];
+  const sel=(k)=>h('select',{onchange:e=>act('accfg',{[k]:e.target.value})},ACT.map(a=>h('option',{value:a[0],selected:c0[k]===a[0]},a[1])));
+  const per={},tot={},key=e=>String(e.name||'').toLowerCase();
+  (ac.log||[]).forEach(e=>{tot[key(e)]=(tot[key(e)]||0)+1;});
+  const shown=(ac.log||[]).filter(e=>{const k=key(e);per[k]=(per[k]||0)+1;return per[k]<=2;}).slice(0,20);   // maksimal 2 entri terbaru per nama
+  const bl=[];Object.keys(bn.uid||{}).forEach(u=>{const e=bn.uid[u];bl.push(h('div',{class:'row'},h('span',{},e.name+' ',h('small',{},u.slice(0,10)+(e.why?' - '+e.why:''))),b('Unban',()=>act('unban',{uid:u}))));});
+  Object.keys(bn.ip||{}).forEach(ip=>{const e=bn.ip[ip];bl.push(h('div',{class:'row'},h('span',{},e.name+' ',h('small',{},'IP '+ip)),b('Unban',()=>act('unban',{ip}))));});
+  return h('div',{},h('h4',{},'Anti-cheat'),h('label',{},h('input',{type:'checkbox',checked:!!c0.on,onchange:e=>act('accfg',{on:e.target.checked})}),' nyala '),
+    h('br'),'curang pasti: ',sel('sure'),h('br'),'mencurigakan: ',sel('sus'),
+    (ac.log||[]).length?h('div',{},b('Hapus log keamanan',()=>{if(confirm('Hapus semua log keamanan dari tampilan web?'))api('acclear').then(()=>load());},'r'),h('small',{},' '+(ac.log||[]).length+' tercatat, ditampilkan maks. 2 terbaru per nama')):null,
+    shown.map(e=>h('div',{class:'c'},
+      new Date(e.at).toLocaleTimeString()+' ',h('b',{},e.name),' ',h('small',{},(e.level==='sure'?'curang':'mencurigakan')+' ('+(ACTN[e.act]||e.act)+')'+(e.ip?' · '+e.ip:'')+(tot[key(e)]>2?' · '+tot[key(e)]+'× tercatat':'')),h('br'),
+      h('small',{},e.what||''),h('br'),
+      e.uid?b('Ban',()=>{if(confirm('Ban '+e.name+'?'))act('banid',{uid:e.uid,ip:'',name:e.name||'',text:'anti-cheat'});},'r'):null,
+      e.ip?b('Ban + IP',()=>{if(confirm('Ban '+e.name+' + IP?'))act('banid',{uid:e.uid||'',ip:e.ip,name:e.name||'',text:'anti-cheat'});},'r'):null)),
+    (ac.log||[]).length?null:h('div',{},h('small',{},'Tidak ada yang ditandai.')),
+    h('h4',{},'Ban'),bl.length?bl:h('small',{},'Tidak ada.'));
+}
+function log(){
+  const hide=U.hideMem!==false;
+  return h('div',{},h('label',{},h('input',{type:'checkbox',checked:hide,onchange:e=>{U.hideMem=e.target.checked;draw();}}),' sembunyikan [mem]'),
+    h('pre',{},LOGS.filter(x=>!(hide&&x.s.startsWith('[mem]'))).slice(-200).map(x=>h('div',{class:/crash|gagal|error|putus/i.test(x.s)?'e':''},new Date(x.t).toLocaleTimeString()+'  '+x.s))));
+}
+load();setInterval(load,3000);
+</script>
