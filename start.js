@@ -10,7 +10,7 @@ const env = process.env;
 const PORT = Number(env.PORT) || 7777;
 const DATA_DIR = env.DATA_DIR || '/data';          // pasang Railway Volume di /data supaya dunia tersimpan
 const cfg = {
-  name: env.SERVER_NAME || 'MiniDayZ+ Reimagined 2.3.9-mp27c3 Indonesia Server | BaseB,PvP,PvE,Bunker,IslandTravel',
+  name: env.SERVER_NAME || 'MiniDayZ+ Reimagined 2.3.9-mp27c4 Indonesia Server | BaseB,PvP,PvE,Bunker,IslandTravel',
   pw: env.SERVER_PASSWORD || '',
   max: Number(env.MAX_PLAYERS) || 20,
   pvp: env.PVP === '0' ? 0 : 1,
