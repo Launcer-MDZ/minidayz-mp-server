@@ -1,4 +1,4 @@
-# Server MiniDayZ+ Reimagined (versi sendiri)
+# Server MiniDayZ+ Reimagined (versi sendiri) Credit By:Madiz
 
 Server multiplayer untuk game MiniDayZ+ Reimagined, dijalankan dari GitHub Codespace. Sudah disesuaikan untuk versi **2.3.9-mp27c** (protokol `np1`; pemain dan server harus memakai build yang sama).
 Kode ini ditulis sendiri (bukan salinan berkas pihak lain). Agar cocok dengan game, hub mengikuti protokol `np1`
